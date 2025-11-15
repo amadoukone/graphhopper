@@ -164,51 +164,6 @@
                     <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
                 </configuration>
             </plugin>
-
-            <plugin>
-                    <groupId>org.pitest</groupId>
-                    <artifactId>pitest-maven</artifactId>
-                    <version>1.15.3</version>
-                    <dependencies>
-                        <dependency>
-                            <groupId>org.pitest</groupId>
-                            <artifactId>pitest-junit5-plugin</artifactId>
-                            <version>1.2.1</version>
-                        </dependency>
-                    </dependencies>
-                    <configuration>
-                        <!-- Cibler uniquement les deux classes spécifiques -->
-                        <targetClasses>
-                            <param>com.graphhopper.routing.DirectionResolver</param>
-                            <param>com.graphhopper.routing.Path</param>
-                        </targetClasses>
-                        <!-- Tests correspondants -->
-                        <targetTests>
-                            <param>com.graphhopper.routing.DirectionResolverTest</param>
-                            <param>com.graphhopper.routing.PathTest</param>
-                        </targetTests>
-                        <!-- Configuration des mutateurs -->
-                        <mutators>
-                            <mutator>DEFAULTS</mutator>
-                        </mutators>
-                        <!-- Format de sortie -->
-                        <outputFormats>
-                            <outputFormat>HTML</outputFormat>
-                            <outputFormat>XML</outputFormat>
-                        </outputFormats>
-                        <!-- Augmenter la mémoire si nécessaire -->
-                        <jvmArgs>
-                            <value>-Xmx1024m</value>
-                        </jvmArgs>
-                        <!-- Nombre de threads -->
-                        <threads>2</threads>
-                        <!-- Verbose pour le débogage -->
-                        <verbose>true</verbose>
-                        <!-- Seuil de couverture (optionnel, pour référence) -->
-                        <mutationThreshold>0</mutationThreshold>
-                        <coverageThreshold>0</coverageThreshold>
-                    </configuration>
-            </plugin>
         </plugins>
 
         <!-- make version available at runtime via version file -->

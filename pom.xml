@@ -215,6 +215,55 @@
                     <artifactId>maven-antrun-plugin</artifactId>
                     <version>1.8</version>
                 </plugin>
+
+            <!--Configuration Pitest pour tous les modules -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>1.15.3</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>1.2.1</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <!-- Tester toutes les classes -->
+                    <targetClasses>
+                        <param>com.graphhopper.*</param>
+                    </targetClasses>
+                    <!-- Tous les tests -->
+                    <targetTests>
+                        <param>com.graphhopper.*</param>
+                    </targetTests>
+                    <!-- Configuration des mutateurs -->
+                    <mutators>
+                        <mutator>DEFAULTS</mutator>
+                    </mutators>
+                    <!-- Format de sortie -->
+                    <outputFormats>
+                        <outputFormat>HTML</outputFormat>
+                        <outputFormat>XML</outputFormat>
+                    </outputFormats>
+                    <!-- Augmenter la mémoire -->
+                    <jvmArgs>
+                        <value>-Xmx2048m</value>
+                    </jvmArgs>
+                    <!-- Nombre de threads -->
+                    <threads>4</threads>
+                    <!-- Verbose -->
+                    <verbose>false</verbose>
+                    <!-- Ne pas échouer s'il n'y a pas de mutations -->
+                    <failWhenNoMutations>false</failWhenNoMutations>
+                    <!-- Seuils -->
+                    <mutationThreshold>0</mutationThreshold>
+                    <coverageThreshold>0</coverageThreshold>
+                    <!-- Pas de timestamped reports -->
+                    <timestampedReports>false</timestampedReports>
+                </configuration>
+            </plugin>
+
             </plugins>
         </pluginManagement>
         <plugins>

@@ -52,54 +52,95 @@ jobs:
       - name: Build and Test ${{ matrix.java-version }}
         run: mvn -B clean test
       
-      #Exécuter Pitest sur le module core
-      - name: Run Pitest mutation testing
-        run: |
-          mvn -B org.pitest:pitest-maven:mutationCoverage -pl core
+      #Exécuter Pitest sur TOUS les modules
+      - name: Run Pitest mutation testing on all modules
+        run: mvn -B org.pitest:pitest-maven:mutationCoverage
       
-      #Extraire le score de mutation actuel
-      - name: Extract mutation score
+      #Agréger les rapports de tous les modules
+      - name: Aggregate Pitest reports
+        run: |
+          # Créer un répertoire pour les rapports agrégés
+          mkdir -p target/pit-reports-aggregate
+          
+          # Trouver tous les rapports index.html de tous les modules
+          find . -path "*/target/pit-reports/*/index.html" -type f | while read report; do
+            module_name=$(echo "$report" | sed 's|./||' | sed 's|/target/.*||')
+            echo "📦 Trouvé rapport pour module: $module_name"
+            
+            # Copier le rapport dans le dossier agrégé
+            mkdir -p "target/pit-reports-aggregate/$module_name"
+            cp -r "$(dirname "$report")"/* "target/pit-reports-aggregate/$module_name/"
+          done
+          
+          echo "✅ Rapports agrégés dans target/pit-reports-aggregate/"
+          ls -la target/pit-reports-aggregate/
+      
+      #Extraire le score de mutation global
+      - name: Extract global mutation score
         id: extract-score
         run: |
-          # Chercher le fichier de rapport Pitest HTML
-          REPORT_FILE=$(find core/target/pit-reports -name "index.html" | head -1)
+          # Trouver tous les rapports HTML de tous les modules
+          REPORT_FILES=$(find . -path "*/target/pit-reports/*/index.html" -type f)
           
-          if [ -z "$REPORT_FILE" ]; then
-            echo "❌ Rapport Pitest introuvable"
+          if [ -z "$REPORT_FILES" ]; then
+            echo "❌ Aucun rapport Pitest trouvé"
             exit 1
           fi
           
-          echo "📄 Rapport trouvé : $REPORT_FILE"
+          echo "📄 Rapports trouvés :"
+          echo "$REPORT_FILES"
+          echo ""
           
-          # Extraire le score de mutation (ligne de couverture)
-          # Format attendu : <div class="coverage_percentage">XX% </div>
-          MUTATION_SCORE=$(grep -oP '(?<=<div class="coverage_percentage">)\d+(?=% </div>)' "$REPORT_FILE" | head -1)
+          # Variables pour calculer le score global
+          TOTAL_MUTATIONS=0
+          TOTAL_KILLED=0
           
-          if [ -z "$MUTATION_SCORE" ]; then
-            echo "⚠️  Tentative d'extraction alternative..."
-            # Alternative : chercher dans les balises <td>
-            MUTATION_SCORE=$(grep -oP '<td>\d+%</td>' "$REPORT_FILE" | grep -oP '\d+' | head -1)
+          # Parser chaque rapport pour extraire les statistiques
+          while IFS= read -r report; do
+            module=$(echo "$report" | sed 's|./||' | sed 's|/target/.*||')
+            echo "📊 Analyse du module: $module"
+            
+            # Extraire le nombre de mutations et de mutations tuées
+            # Pattern : chercher dans le XML qui est plus fiable
+            xml_report="${report/index.html/mutations.xml}"
+            
+            if [ -f "$xml_report" ]; then
+              mutations=$(grep -oP 'detected="\K\d+' "$xml_report" | awk '{s+=$1} END {print s}')
+              killed=$(grep -oP 'status="KILLED"' "$xml_report" | wc -l)
+              
+              TOTAL_MUTATIONS=$((TOTAL_MUTATIONS + mutations))
+              TOTAL_KILLED=$((TOTAL_KILLED + killed))
+              
+              echo "  Mutations: $mutations, Tuées: $killed"
+            fi
+          done <<< "$REPORT_FILES"
+          
+          echo ""
+          echo "📈 Statistiques globales :"
+          echo "  Total mutations : $TOTAL_MUTATIONS"
+          echo "  Total tuées     : $TOTAL_KILLED"
+          
+          # Calculer le score global
+          if [ "$TOTAL_MUTATIONS" -eq 0 ]; then
+            GLOBAL_SCORE=0
+            echo "⚠️  Aucune mutation détectée"
+          else
+            GLOBAL_SCORE=$((TOTAL_KILLED * 100 / TOTAL_MUTATIONS))
           fi
           
-          if [ -z "$MUTATION_SCORE" ]; then
-            echo "❌ Impossible d'extraire le score de mutation"
-            echo "Contenu du rapport (premières lignes) :"
-            head -50 "$REPORT_FILE"
-            exit 1
-          fi
-          
-          echo "current_score=$MUTATION_SCORE" >> $GITHUB_OUTPUT
-          echo "📊 Score de mutation actuel : $MUTATION_SCORE%"
+          echo "global_score=$GLOBAL_SCORE" >> $GITHUB_OUTPUT
+          echo ""
+          echo "🎯 Score de mutation global : $GLOBAL_SCORE%"
       
       #Comparer avec la baseline
       - name: Compare mutation score with baseline
         run: |
-          CURRENT_SCORE=${{ steps.extract-score.outputs.current_score }}
+          CURRENT_SCORE=${{ steps.extract-score.outputs.global_score }}
           
           # Vérifier si une baseline existe
           if [ ! -f .mutation-baseline/score.txt ]; then
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🆕 PREMIÈRE EXÉCUTION"
+            echo "🆕 PREMIÈRE EXÉCUTION - CRÉATION DE LA BASELINE"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
             echo "Aucune baseline de mutation testing trouvée."
@@ -122,7 +163,7 @@ jobs:
           BASELINE_SCORE=$(cat .mutation-baseline/score.txt)
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔍 VÉRIFICATION DU SCORE DE MUTATION"
+          echo "🔍 VÉRIFICATION DU SCORE DE MUTATION GLOBAL"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           echo "📈 Score baseline : $BASELINE_SCORE%"
@@ -132,7 +173,9 @@ jobs:
           # Comparer les scores (comparaison numérique)
           if [ "$CURRENT_SCORE" -lt "$BASELINE_SCORE" ]; then
             DIFF=$((BASELINE_SCORE - CURRENT_SCORE))
-            echo "❌ ÉCHEC : Le score de mutation a BAISSÉ de $DIFF point(s) !"
+            echo "❌ ❌ ❌ ÉCHEC ❌ ❌ ❌"
+            echo ""
+            echo "Le score de mutation a BAISSÉ de $DIFF point(s) !"
             echo ""
             echo "Détails :"
             echo "  • Score attendu (baseline) : $BASELINE_SCORE%"
@@ -148,7 +191,9 @@ jobs:
             exit 1
           elif [ "$CURRENT_SCORE" -gt "$BASELINE_SCORE" ]; then
             DIFF=$((CURRENT_SCORE - BASELINE_SCORE))
-            echo "✅ AMÉLIORATION : Le score a augmenté de $DIFF point(s) ! 🎉"
+            echo "✅ ✅ ✅ AMÉLIORATION ✅ ✅ ✅"
+            echo ""
+            echo "Le score a augmenté de $DIFF point(s) ! 🎉"
             echo ""
             echo "📝 Mise à jour de la baseline..."
             echo "$CURRENT_SCORE" > .mutation-baseline/score.txt
@@ -165,11 +210,11 @@ jobs:
           fi
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       
-      #Upload du rapport Pitest en artifact
-      - name: Upload Pitest report
+      #Upload des rapports Pitest agrégés
+      - name: Upload Pitest reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pitest-report-java-${{ matrix.java-version }}
-          path: core/target/pit-reports/
+          name: pitest-reports-all-modules-java-${{ matrix.java-version }}
+          path: target/pit-reports-aggregate/
           retention-days: 30
