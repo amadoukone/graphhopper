@@ -68,6 +68,10 @@ jobs:
           key: mutation-baseline-${{ github.ref_name }}
           restore-keys: |
             mutation-baseline-
+
+      #Compiler le projet (sans clean) avant Pitest
+      - name: Compile project
+        run: mvn -B install -DskipTests
       
       - name: Run Pitest mutation testing on all modules
         run: mvn -B org.pitest:pitest-maven:mutationCoverage -DargLine=""
