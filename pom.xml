@@ -291,6 +291,18 @@
                     <!--Timeout par test pour éviter les blocages -->
                     <timeoutConstant>5000</timeoutConstant>
                     <timeoutFactor>1.5</timeoutFactor>
+
+                     <features>
+                        <feature>+CLASSLIMIT(limit[50])</feature>
+                    </features>
+                    
+                    <!-- Exclusions pour réduire la charge -->
+                    <excludedMethods>
+                        <excludedMethod>hashCode</excludedMethod>
+                        <excludedMethod>equals</excludedMethod>
+                        <excludedMethod>toString</excludedMethod>
+                    </excludedMethods>
+
                 </configuration>
             </plugin>
 

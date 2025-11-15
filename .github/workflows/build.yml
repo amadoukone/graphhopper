@@ -87,11 +87,10 @@ jobs:
             # FORCER les paramètres JVM via la ligne de commande
             if mvn -B org.pitest:pitest-maven:mutationCoverage \
               -DargLine="" \
-              -DjvmArgs="-Xmx768m -Xms256m -Duser.language=en --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED" \
               -Dthreads=1 \
               -DtimeoutConstant=5000 \
               -DtimeoutFactor=1.5 \
-              -DmaxMutationsPerClass=50 \
+              -Dfeatures="+CLASSLIMIT(limit[50])" \
               -pl $module -am; then
               echo "✅ Module $module : SUCCÈS"
             else
