@@ -220,7 +220,7 @@
             <plugin>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
-                <version>1.17.0</version> <!-- Version plus récente -->
+                <version>1.17.0</version>
                 <dependencies>
                     <dependency>
                         <groupId>org.pitest</groupId>
@@ -246,9 +246,11 @@
                         <outputFormat>HTML</outputFormat>
                         <outputFormat>XML</outputFormat>
                     </outputFormats>
-                    <!-- Augmenter la mémoire et ajouter des flags pour Java 24 -->
+                    <!-- MODIFIÉ : JVM Args simplifiés sans référence à argLine -->
                     <jvmArgs>
                         <value>-Xmx2048m</value>
+                        <value>-Xms512m</value>
+                        <value>-Duser.language=en</value>
                         <!-- Flags pour supporter les versions récentes de Java -->
                         <value>--add-opens=java.base/java.lang=ALL-UNNAMED</value>
                         <value>--add-opens=java.base/java.util=ALL-UNNAMED</value>
@@ -267,9 +269,9 @@
                     <timestampedReports>false</timestampedReports>
                     <!-- Désactiver l'historique pour éviter les problèmes de compatibilité -->
                     <withHistory>false</withHistory>
-                    <excludedClasses>
-                    </excludedClasses>
-    </configuration>
+                    <!--Ne pas utiliser argLine de Surefire -->
+                    <useClasspathFile>false</useClasspathFile>
+                </configuration>
             </plugin>
 
             </plugins>
@@ -278,7 +280,12 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-            </plugin>
+                <version>2.22.2</version>
+                <configuration>
+                    <!-- MODIFIÉ : Utiliser ${argLine} au lieu de @{argLine} pour Pitest -->
+                    <argLine>${argLine} -Xmx190m -Xms190m -Duser.language=en</argLine>
+                </configuration>
+        </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
