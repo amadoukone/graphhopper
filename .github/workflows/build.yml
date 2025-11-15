@@ -55,9 +55,7 @@ jobs:
       #Exécuter Pitest sur le module core
       - name: Run Pitest mutation testing
         run: |
-          cd core
-          mvn -B org.pitest:pitest-maven:mutationCoverage
-          cd ..
+          mvn -B org.pitest:pitest-maven:mutationCoverage -pl core
       
       #Extraire le score de mutation actuel
       - name: Extract mutation score
