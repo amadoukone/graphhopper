@@ -238,6 +238,22 @@
                     <targetTests>
                         <param>com.graphhopper.*</param>
                     </targetTests>
+
+                <!--Exclure les packages/classes les plus lourds -->
+                <excludedClasses>
+                    <!-- Exclure les classes générées -->
+                    <excludedClass>*.*Test</excludedClass>
+                    <excludedClass>*.*IT</excludedClass>
+                    <!-- Exclure les builders et DTOs simples -->
+                    <excludedClass>*.dto.*</excludedClass>
+                    <excludedClass>*.*Builder</excludedClass>
+                    <!-- Exclure les packages connus pour être lourds -->
+                    <excludedClass>com.graphhopper.routing.weighting.*</excludedClass>
+                    <excludedClass>com.graphhopper.storage.*</excludedClass>
+                </excludedClasses>
+
+
+
                     <!-- Configuration des mutateurs -->
                     <mutators>
                         <mutator>DEFAULTS</mutator>
