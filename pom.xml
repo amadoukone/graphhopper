@@ -258,7 +258,7 @@
                         <value>--add-opens=java.base/sun.nio.ch=ALL-UNNAMED</value>
                     </jvmArgs>
                     <!-- Nombre de threads -->
-                    <threads>4</threads>
+                    <threads>1</threads>
                     <!-- Verbose -->
                     <verbose>false</verbose>
                     <!-- Ne pas échouer s'il n'y a pas de mutations -->
@@ -272,6 +272,9 @@
                     <withHistory>false</withHistory>
                     <!--Ne pas utiliser argLine de Surefire -->
                     <useClasspathFile>false</useClasspathFile>
+                    <!--Timeout par test pour éviter les blocages -->
+                    <timeoutConstant>5000</timeoutConstant>
+                    <timeoutFactor>1.5</timeoutFactor>
                 </configuration>
             </plugin>
 
