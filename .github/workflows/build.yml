@@ -54,7 +54,8 @@ jobs:
       
       #Exécuter Pitest sur TOUS les modules
       - name: Run Pitest mutation testing on all modules
-        run: mvn -B org.pitest:pitest-maven:mutationCoverage
+        if: matrix.java-version == '24'
+        run: mvn -B org.pitest:pitest-maven:mutationCoverage -DargLine=" "
       
       #Agréger les rapports de tous les modules
       - name: Aggregate Pitest reports

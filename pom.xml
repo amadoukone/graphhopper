@@ -22,6 +22,7 @@
              switched to another JDK on travis it was enabled implicitly. Our javadocs are not ready for this
              so we disable it explicitly now -->
         <doclint>none</doclint>
+        <argLine></argLine>
     </properties>
 
     <scm>
