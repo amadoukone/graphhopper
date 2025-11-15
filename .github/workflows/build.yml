@@ -13,6 +13,7 @@ jobs:
         with:
           java-version: ${{ matrix.java-version }}
           distribution: temurin
+      
       - name: Cache Maven artifacts
         uses: actions/cache@v4
         with:
@@ -20,6 +21,7 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
+      
       - name: Cache node
         uses: actions/cache@v4
         with:
@@ -27,6 +29,7 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os}}-node-
+      
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
@@ -34,6 +37,141 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
           restore-keys: |
             ${{ runner.os}}-node_modules-
-      - name: Build ${{ matrix.java-version }}
+      
+      #Cache pour la baseline du score de mutation
+      - name: Cache mutation score baseline
+        id: cache-mutation-baseline
+        uses: actions/cache@v4
+        with:
+          path: .mutation-baseline
+          key: mutation-baseline-${{ github.ref_name }}-java-${{ matrix.java-version }}
+          restore-keys: |
+            mutation-baseline-${{ github.ref_name }}-
+            mutation-baseline-
+      
+      - name: Build and Test ${{ matrix.java-version }}
         run: mvn -B clean test
-
+      
+      #Exécuter Pitest sur le module core
+      - name: Run Pitest mutation testing
+        run: |
+          cd core
+          mvn -B org.pitest:pitest-maven:mutationCoverage
+          cd ..
+      
+      #Extraire le score de mutation actuel
+      - name: Extract mutation score
+        id: extract-score
+        run: |
+          # Chercher le fichier de rapport Pitest HTML
+          REPORT_FILE=$(find core/target/pit-reports -name "index.html" | head -1)
+          
+          if [ -z "$REPORT_FILE" ]; then
+            echo "❌ Rapport Pitest introuvable"
+            exit 1
+          fi
+          
+          echo "📄 Rapport trouvé : $REPORT_FILE"
+          
+          # Extraire le score de mutation (ligne de couverture)
+          # Format attendu : <div class="coverage_percentage">XX% </div>
+          MUTATION_SCORE=$(grep -oP '(?<=<div class="coverage_percentage">)\d+(?=% </div>)' "$REPORT_FILE" | head -1)
+          
+          if [ -z "$MUTATION_SCORE" ]; then
+            echo "⚠️  Tentative d'extraction alternative..."
+            # Alternative : chercher dans les balises <td>
+            MUTATION_SCORE=$(grep -oP '<td>\d+%</td>' "$REPORT_FILE" | grep -oP '\d+' | head -1)
+          fi
+          
+          if [ -z "$MUTATION_SCORE" ]; then
+            echo "❌ Impossible d'extraire le score de mutation"
+            echo "Contenu du rapport (premières lignes) :"
+            head -50 "$REPORT_FILE"
+            exit 1
+          fi
+          
+          echo "current_score=$MUTATION_SCORE" >> $GITHUB_OUTPUT
+          echo "📊 Score de mutation actuel : $MUTATION_SCORE%"
+      
+      #Comparer avec la baseline
+      - name: Compare mutation score with baseline
+        run: |
+          CURRENT_SCORE=${{ steps.extract-score.outputs.current_score }}
+          
+          # Vérifier si une baseline existe
+          if [ ! -f .mutation-baseline/score.txt ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🆕 PREMIÈRE EXÉCUTION"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Aucune baseline de mutation testing trouvée."
+            echo "Création de la baseline initiale avec un score de $CURRENT_SCORE%"
+            echo ""
+            mkdir -p .mutation-baseline
+            echo "$CURRENT_SCORE" > .mutation-baseline/score.txt
+            echo "Branche: ${{ github.ref_name }}" > .mutation-baseline/metadata.txt
+            echo "Commit: ${{ github.sha }}" >> .mutation-baseline/metadata.txt
+            echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .mutation-baseline/metadata.txt
+            echo "Java: ${{ matrix.java-version }}" >> .mutation-baseline/metadata.txt
+            echo ""
+            echo "✅ Baseline créée avec succès"
+            echo "⚠️  Les prochains commits seront comparés à cette baseline"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 0
+          fi
+          
+          # Lire la baseline
+          BASELINE_SCORE=$(cat .mutation-baseline/score.txt)
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 VÉRIFICATION DU SCORE DE MUTATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📈 Score baseline : $BASELINE_SCORE%"
+          echo "📊 Score actuel   : $CURRENT_SCORE%"
+          echo ""
+          
+          # Comparer les scores (comparaison numérique)
+          if [ "$CURRENT_SCORE" -lt "$BASELINE_SCORE" ]; then
+            DIFF=$((BASELINE_SCORE - CURRENT_SCORE))
+            echo "❌ ÉCHEC : Le score de mutation a BAISSÉ de $DIFF point(s) !"
+            echo ""
+            echo "Détails :"
+            echo "  • Score attendu (baseline) : $BASELINE_SCORE%"
+            echo "  • Score obtenu            : $CURRENT_SCORE%"
+            echo "  • Régression              : -$DIFF%"
+            echo ""
+            echo "⚠️  Le build échoue car la qualité des tests a diminué."
+            echo "   Veuillez améliorer les tests avant de merger ce commit."
+            echo ""
+            echo "Baseline créée depuis :"
+            cat .mutation-baseline/metadata.txt
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          elif [ "$CURRENT_SCORE" -gt "$BASELINE_SCORE" ]; then
+            DIFF=$((CURRENT_SCORE - BASELINE_SCORE))
+            echo "✅ AMÉLIORATION : Le score a augmenté de $DIFF point(s) ! 🎉"
+            echo ""
+            echo "📝 Mise à jour de la baseline..."
+            echo "$CURRENT_SCORE" > .mutation-baseline/score.txt
+            echo "Branche: ${{ github.ref_name }}" > .mutation-baseline/metadata.txt
+            echo "Commit: ${{ github.sha }}" >> .mutation-baseline/metadata.txt
+            echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .mutation-baseline/metadata.txt
+            echo "Java: ${{ matrix.java-version }}" >> .mutation-baseline/metadata.txt
+            echo ""
+            echo "✅ Nouvelle baseline sauvegardée : $CURRENT_SCORE%"
+          else
+            echo "✅ Score maintenu à $CURRENT_SCORE%"
+            echo ""
+            echo "Le score de mutation est identique à la baseline."
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      #Upload du rapport Pitest en artifact
+      - name: Upload Pitest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitest-report-java-${{ matrix.java-version }}
+          path: core/target/pit-reports/
+          retention-days: 30
