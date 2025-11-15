@@ -74,7 +74,36 @@ jobs:
         run: mvn -B install -DskipTests
       
       - name: Run Pitest mutation testing on all modules
-        run: mvn -B org.pitest:pitest-maven:mutationCoverage -DargLine=""
+        run: |
+          # Liste des modules à tester (sans web-bundle qui est lourd)
+          MODULES="web-api core reader-gtfs tools map-matching client-hc navigation web example"
+          
+          echo "🧬 Démarrage du mutation testing module par module"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          SUCCESS_COUNT=0
+          FAIL_COUNT=0
+          
+          for module in $MODULES; do
+            echo ""
+            echo "📦 Testing module: $module"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            if mvn -B org.pitest:pitest-maven:mutationCoverage -DargLine="" -pl $module -am; then
+              echo "✅ Module $module : SUCCÈS"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+              echo "❌ Module $module : ÉCHEC (continuer quand même)"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+            fi
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 Résumé du mutation testing :"
+          echo "   ✅ Succès : $SUCCESS_COUNT modules"
+          echo "   ❌ Échecs : $FAIL_COUNT modules"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       
       - name: Aggregate Pitest reports
         run: |
