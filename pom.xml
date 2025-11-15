@@ -220,7 +220,7 @@
             <plugin>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
-                <version>1.15.3</version>
+                <version>1.17.0</version> <!-- Version plus récente -->
                 <dependencies>
                     <dependency>
                         <groupId>org.pitest</groupId>
@@ -246,9 +246,13 @@
                         <outputFormat>HTML</outputFormat>
                         <outputFormat>XML</outputFormat>
                     </outputFormats>
-                    <!-- Augmenter la mémoire -->
+                    <!-- Augmenter la mémoire et ajouter des flags pour Java 24 -->
                     <jvmArgs>
                         <value>-Xmx2048m</value>
+                        <!-- Flags pour supporter les versions récentes de Java -->
+                        <value>--add-opens=java.base/java.lang=ALL-UNNAMED</value>
+                        <value>--add-opens=java.base/java.util=ALL-UNNAMED</value>
+                        <value>--add-opens=java.base/sun.nio.ch=ALL-UNNAMED</value>
                     </jvmArgs>
                     <!-- Nombre de threads -->
                     <threads>4</threads>
@@ -261,7 +265,11 @@
                     <coverageThreshold>0</coverageThreshold>
                     <!-- Pas de timestamped reports -->
                     <timestampedReports>false</timestampedReports>
-                </configuration>
+                    <!-- Désactiver l'historique pour éviter les problèmes de compatibilité -->
+                    <withHistory>false</withHistory>
+                    <excludedClasses>
+                    </excludedClasses>
+    </configuration>
             </plugin>
 
             </plugins>
