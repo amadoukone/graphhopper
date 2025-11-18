@@ -250,16 +250,22 @@
                         <verbose>true</verbose>
                         <failWhenNoMutations>false</failWhenNoMutations>
                         <skipFailingTests>true</skipFailingTests>
-                        <!-- Augmenter la mémoire pour éviter les crashes -->
+                        <useClasspathJar>true</useClasspathJar>
+                        <!-- Arguments JVM pour le processus principal -->
                         <jvmArgs>
                             <value>-Xmx2048m</value>
                             <value>-Xms512m</value>
                         </jvmArgs>
-                        <!-- Exclure les modules problématiques si nécessaire -->
+                        <!-- Arguments JVM pour les processus minion (crucial pour éviter MINION_DIED) -->
+                        <argLine>-Xmx2048m -Xms512m</argLine>
                         <excludedClasses>
                             <param>*Test</param>
                             <param>*IT</param>
                         </excludedClasses>
+                        <!-- Désactiver les features Java 21+ qui causent des problèmes -->
+                        <features>
+                            <feature>+auto_threads</feature>
+                        </features>
                     </configuration>
                 </plugin>
 
