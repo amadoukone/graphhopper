@@ -19,22 +19,45 @@ jobs:
         with:
           fetch-depth: 2
       
-      - name: Set up Java
+      - name: Set up Java (without problematic flags)
         uses: actions/setup-java@v4
         with:
-          java-version: 17
+          java-version: '17.0.8'  # Version spécifique plus ancienne
           distribution: temurin
+          # Désactiver les features récentes
+          java-package: jdk
       
-      - name: Configure Maven to avoid JVM conflicts
+      - name: Verify Java setup
         run: |
+          echo "=== Java Version ==="
+          java -version
+          echo ""
+          echo "=== Java Options ==="
+          echo "JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-not set}"
+          echo "MAVEN_OPTS: ${MAVEN_OPTS:-not set}"
+          echo "_JAVA_OPTIONS: ${_JAVA_OPTIONS:-not set}"
+      
+      - name: Configure environment for PIT
+        run: |
+          # Forcer Maven à ignorer toutes les options héritées
+          echo "MAVEN_OPTS=-Xmx2048m -Xms512m" >> $GITHUB_ENV
+          
+          # Créer .mvn/jvm.config
           mkdir -p .mvn
           cat > .mvn/jvm.config << 'EOF'
           -Xmx2048m
           -Xms512m
           EOF
           
-          echo "=== Maven JVM Config ==="
+          # Créer .mvn/maven.config pour forcer certaines options
+          cat > .mvn/maven.config << 'EOF'
+          -B
+          --no-transfer-progress
+          EOF
+          
+          echo "=== Maven Config Files ==="
           cat .mvn/jvm.config
+          cat .mvn/maven.config
       
       - name: Cache Maven artifacts
         uses: actions/cache@v4
@@ -44,27 +67,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
       
-      - name: Cache node
-        uses: actions/cache@v4
-        with:
-          path: web-bundle/node
-          key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os}}-node-
-      
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        with:
-          path: web-bundle/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
-          restore-keys: |
-            ${{ runner.os}}-node_modules-
-      
       - name: Build and test project (current commit)
-        run: mvn clean test -B
+        run: mvn clean test
       
       - name: Install project without tests
-        run: mvn install -DskipTests -B
+        run: mvn install -DskipTests
       
       - name: Run mutation testing on current commit (core module)
         id: run-current-pit
@@ -72,10 +79,10 @@ jobs:
           set +e
           cd core
           
-          unset MAVEN_OPTS
-          unset _JAVA_OPTIONS
-          
-          mvn org.pitest:pitest-maven:mutationCoverage -B 2>&1 | tee pit-output.log
+          # Dernière tentative : forcer les options via properties système
+          mvn org.pitest:pitest-maven:mutationCoverage \
+            -Dpit.jvmArgs="-Xmx2048m,-Xms512m" \
+            2>&1 | tee pit-output.log
           
           EXIT_CODE=$?
           
@@ -87,8 +94,8 @@ jobs:
             echo "success=false" >> $GITHUB_OUTPUT
             echo "❌ No mutation report generated"
             
-            echo "=== Errors from PIT ==="
-            grep -i "error\|severe\|minion" pit-output.log | tail -30
+            echo "=== Last 100 lines of output ==="
+            tail -100 pit-output.log
             exit 1
           fi
       
@@ -135,7 +142,7 @@ jobs:
         if: steps.current-score.outputs.found == 'true'
         run: |
           mkdir -p mutation-reports/current
-          cp -r core/target/pit-reports/* mutation-reports/current/ 2>/dev/null || true
+          cp -r core/target/pit-reports/* mutation-reports/current/
       
       - name: Check if parent commit exists
         id: check-parent
@@ -144,23 +151,22 @@ jobs:
             echo "exists=true" >> $GITHUB_OUTPUT
             PARENT=$(git rev-parse HEAD^)
             echo "commit=$PARENT" >> $GITHUB_OUTPUT
-            echo "✅ Parent commit found: $PARENT"
+            echo "✅ Parent commit: $PARENT"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  No parent commit (first commit or shallow clone)"
+            echo "⚠️  No parent commit"
           fi
       
       - name: Checkout parent commit
         if: steps.check-parent.outputs.exists == 'true'
         run: |
-          echo "Checking out parent commit: ${{ steps.check-parent.outputs.commit }}"
           git checkout ${{ steps.check-parent.outputs.commit }}
       
       - name: Build and test project (parent commit)
         if: steps.check-parent.outputs.exists == 'true'
         run: |
-          mvn clean test -B
-          mvn install -DskipTests -B
+          mvn clean test
+          mvn install -DskipTests
       
       - name: Run mutation testing on parent commit
         if: steps.check-parent.outputs.exists == 'true'
@@ -169,18 +175,17 @@ jobs:
           set +e
           cd core
           
-          unset MAVEN_OPTS
-          unset _JAVA_OPTIONS
-          
-          mvn org.pitest:pitest-maven:mutationCoverage -B 2>&1 | tee pit-parent-output.log
+          mvn org.pitest:pitest-maven:mutationCoverage \
+            -Dpit.jvmArgs="-Xmx2048m,-Xms512m" \
+            2>&1 | tee pit-parent-output.log
           
           if find target/pit-reports -name "mutations.xml" 2>/dev/null | grep -q .; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Parent mutation report generated"
+            echo "✅ Parent report generated"
             exit 0
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "⚠️  No mutation report for parent (will use baseline comparison)"
+            echo "⚠️  No parent report"
             exit 0
           fi
       
@@ -208,27 +213,12 @@ jobs:
             MUTATION_SCORE=$((KILLED_MUTANTS * 100 / TOTAL_MUTANTS))
           fi
           
-          echo "=================================="
-          echo "📊 Parent Commit Mutation Results"
-          echo "=================================="
-          echo "Total mutants:    $TOTAL_MUTANTS"
-          echo "Killed mutants:   $KILLED_MUTANTS"
-          echo "Survived mutants: $SURVIVED_MUTANTS"
-          echo "Mutation score:   $MUTATION_SCORE%"
-          echo "=================================="
-          
           echo "score=$MUTATION_SCORE" >> $GITHUB_OUTPUT
           echo "killed=$KILLED_MUTANTS" >> $GITHUB_OUTPUT
           echo "total=$TOTAL_MUTANTS" >> $GITHUB_OUTPUT
           echo "survived=$SURVIVED_MUTANTS" >> $GITHUB_OUTPUT
       
-      - name: Save parent mutation report
-        if: steps.parent-score.outputs.found == 'true'
-        run: |
-          mkdir -p mutation-reports/parent
-          cp -r core/target/pit-reports/* mutation-reports/parent/ 2>/dev/null || true
-      
-      - name: Compare mutation scores and fail if decreased
+      - name: Compare mutation scores
         if: steps.current-score.outputs.found == 'true'
         run: |
           CURRENT_SCORE=${{ steps.current-score.outputs.score }}
@@ -243,64 +233,30 @@ jobs:
           echo ""
           
           if [ "${{ steps.check-parent.outputs.exists }}" != "true" ] || [ "${{ steps.parent-score.outputs.found }}" != "true" ]; then
-            echo "📊 Current Commit:"
-            echo "   - Mutation Score: $CURRENT_SCORE%"
-            echo "   - Mutants Killed: $CURRENT_KILLED/$CURRENT_TOTAL"
-            echo "   - Mutants Survived: $CURRENT_SURVIVED"
+            echo "📊 Current: $CURRENT_KILLED/$CURRENT_TOTAL killed ($CURRENT_SCORE%)"
+            echo "📋 Parent: No comparison available"
             echo ""
-            echo "📋 Parent Commit: No comparison available"
-            echo ""
-            echo "✅ SUCCESS: Baseline mutation score established at $CURRENT_SCORE%"
-            echo ""
+            echo "✅ Baseline established at $CURRENT_SCORE%"
             exit 0
           fi
           
           PARENT_SCORE=${{ steps.parent-score.outputs.score }}
           PARENT_KILLED=${{ steps.parent-score.outputs.killed }}
           PARENT_TOTAL=${{ steps.parent-score.outputs.total }}
-          PARENT_SURVIVED=${{ steps.parent-score.outputs.survived }}
           DIFF=$((CURRENT_SCORE - PARENT_SCORE))
           
-          echo "📊 Current Commit:"
-          echo "   - Mutation Score: $CURRENT_SCORE%"
-          echo "   - Mutants Killed: $CURRENT_KILLED/$CURRENT_TOTAL"
-          echo "   - Mutants Survived: $CURRENT_SURVIVED"
-          echo ""
-          echo "📋 Parent Commit:"
-          echo "   - Mutation Score: $PARENT_SCORE%"
-          echo "   - Mutants Killed: $PARENT_KILLED/$PARENT_TOTAL"
-          echo "   - Mutants Survived: $PARENT_SURVIVED"
-          echo ""
-          echo "📈 Difference: ${DIFF}% (${CURRENT_SCORE}% - ${PARENT_SCORE}%)"
+          echo "📊 Current: $CURRENT_KILLED/$CURRENT_TOTAL killed ($CURRENT_SCORE%)"
+          echo "📋 Parent:  $PARENT_KILLED/$PARENT_TOTAL killed ($PARENT_SCORE%)"
+          echo "📈 Diff:    ${DIFF}%"
           echo ""
           
           if [ $CURRENT_SCORE -lt $PARENT_SCORE ]; then
-            echo "╔════════════════════════════════════════════════════╗"
-            echo "║                  ❌ BUILD FAILED                   ║"
-            echo "╚════════════════════════════════════════════════════╝"
-            echo ""
-            echo "Mutation score DECREASED from $PARENT_SCORE% to $CURRENT_SCORE%"
-            echo ""
-            echo "Your changes have reduced the quality of mutation testing."
-            echo "Please improve your tests to kill more mutants before merging."
-            echo ""
-            echo "Tips:"
-            echo "  - Review survived mutants in the PIT report"
-            echo "  - Add more assertions to your tests"
-            echo "  - Test edge cases and boundary conditions"
-            echo ""
+            echo "❌ FAILURE: Score decreased from $PARENT_SCORE% to $CURRENT_SCORE%"
             exit 1
           elif [ $CURRENT_SCORE -eq $PARENT_SCORE ]; then
-            echo "✅ SUCCESS: Mutation score MAINTAINED at $CURRENT_SCORE%"
-            echo ""
+            echo "✅ Score maintained at $CURRENT_SCORE%"
           else
-            echo "╔════════════════════════════════════════════════════╗"
-            echo "║              🎉 GREAT IMPROVEMENT! 🎉              ║"
-            echo "╚════════════════════════════════════════════════════╝"
-            echo ""
-            echo "Mutation score IMPROVED from $PARENT_SCORE% to $CURRENT_SCORE%"
-            echo "You killed $((CURRENT_KILLED - PARENT_KILLED)) more mutants!"
-            echo ""
+            echo "🎉 Score improved from $PARENT_SCORE% to $CURRENT_SCORE%"
           fi
       
       - name: Upload mutation reports
@@ -315,70 +271,40 @@ jobs:
             core/pit-parent-output.log
           retention-days: 30
       
-      - name: Comment PR with mutation results
+      - name: Comment PR
         if: github.event_name == 'pull_request' && steps.current-score.outputs.found == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            const currentScore = parseInt('${{ steps.current-score.outputs.score }}');
-            const currentKilled = parseInt('${{ steps.current-score.outputs.killed }}');
-            const currentTotal = parseInt('${{ steps.current-score.outputs.total }}');
-            const currentSurvived = parseInt('${{ steps.current-score.outputs.survived }}');
+            const current = {
+              score: parseInt('${{ steps.current-score.outputs.score }}'),
+              killed: parseInt('${{ steps.current-score.outputs.killed }}'),
+              total: parseInt('${{ steps.current-score.outputs.total }}'),
+              survived: parseInt('${{ steps.current-score.outputs.survived }}')
+            };
             const hasParent = '${{ steps.parent-score.outputs.found }}' === 'true';
             
-            let body = `## 🧬 Mutation Testing Results (Core Module)\n\n`;
+            let body = `## 🧬 Mutation Testing (Core Module)\n\n`;
             
             if (hasParent) {
-              const parentScore = parseInt('${{ steps.parent-score.outputs.score }}');
-              const parentKilled = parseInt('${{ steps.parent-score.outputs.killed }}');
-              const parentTotal = parseInt('${{ steps.parent-score.outputs.total }}');
-              const diff = currentScore - parentScore;
-              const killedDiff = currentKilled - parentKilled;
+              const parent = {
+                score: parseInt('${{ steps.parent-score.outputs.score }}'),
+                killed: parseInt('${{ steps.parent-score.outputs.killed }}'),
+                total: parseInt('${{ steps.parent-score.outputs.total }}')
+              };
+              const diff = current.score - parent.score;
+              const emoji = diff < 0 ? '❌' : diff > 0 ? '🎉' : '✅';
               
-              let emoji = '✅';
-              let status = 'maintained';
-              let statusColor = '🟢';
-              
-              if (diff < 0) {
-                emoji = '❌';
-                status = 'decreased';
-                statusColor = '🔴';
-              } else if (diff > 0) {
-                emoji = '🎉';
-                status = 'improved';
-                statusColor = '🟢';
-              }
-              
-              body += `| Metric | Parent | Current | Difference |
-            |--------|--------|---------|------------|
-            | **Mutation Score** | ${parentScore}% | ${currentScore}% | ${statusColor} ${diff > 0 ? '+' : ''}${diff}% |
-            | **Mutants Killed** | ${parentKilled}/${parentTotal} | ${currentKilled}/${currentTotal} | ${killedDiff > 0 ? '+' : ''}${killedDiff} |
-            | **Mutants Survived** | ${parentTotal - parentKilled} | ${currentSurvived} | ${(currentSurvived - (parentTotal - parentKilled)) > 0 ? '+' : ''}${currentSurvived - (parentTotal - parentKilled)} |
-            
-            ### ${emoji} Status: Mutation score has **${status}**
-            
-            `;
-              
-              if (diff < 0) {
-                body += `\n⚠️ **Warning:** The mutation score decreased. Please review the survived mutants and improve test coverage.\n`;
-              } else if (diff > 0) {
-                body += `\n🎉 **Great job!** You killed ${killedDiff} more mutant${killedDiff !== 1 ? 's' : ''}!\n`;
-              }
-              
+              body += `| Metric | Parent | Current | Diff |
+            |--------|--------|---------|------|
+            | Score | ${parent.score}% | ${current.score}% | ${emoji} ${diff > 0 ? '+' : ''}${diff}% |
+            | Killed | ${parent.killed}/${parent.total} | ${current.killed}/${current.total} | ${current.killed - parent.killed} |\n`;
             } else {
               body += `| Metric | Value |
             |--------|-------|
-            | **Mutation Score** | ${currentScore}% |
-            | **Mutants Killed** | ${currentKilled}/${currentTotal} |
-            | **Mutants Survived** | ${currentSurvived} |
-            
-            ### ✅ Status: Baseline established
-            
-            No parent commit available for comparison. This establishes the baseline mutation score.
-            `;
+            | Score | ${current.score}% |
+            | Killed | ${current.killed}/${current.total} |\n\n✅ Baseline established`;
             }
-            
-            body += `\n---\n*Mutation testing powered by [PIT](https://pitest.org/)*`;
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
