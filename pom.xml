@@ -261,7 +261,9 @@
                             <jvmArg>-XX:MaxGCPauseMillis=200</jvmArg>
                         </jvmArgs>
                         <!-- Limiter le nombre de mutations pour tester -->
-                        <maxMutationsPerClass>50</maxMutationsPerClass>
+                        <features>
+                            <feature>+CLASSLIMIT(limit[50])</feature>
+                        </features>
                         <excludedClasses>
                             <param>*Test</param>
                             <param>*IT</param>
@@ -275,7 +277,7 @@
                         </avoidCallsTo>
                     </configuration>
                 </plugin>
-                
+
             </plugins>
         </pluginManagement>
         <plugins>
