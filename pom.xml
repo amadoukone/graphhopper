@@ -216,7 +216,7 @@
                     <version>1.8</version>
                 </plugin>
 
-                <!-- Pitest-->
+                <!--Pitest-->
                 <plugin>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
