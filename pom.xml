@@ -22,7 +22,6 @@
              switched to another JDK on travis it was enabled implicitly. Our javadocs are not ready for this
              so we disable it explicitly now -->
         <doclint>none</doclint>
-        <argLine></argLine>
     </properties>
 
     <scm>
@@ -217,94 +216,39 @@
                     <version>1.8</version>
                 </plugin>
 
-            <!--Configuration Pitest pour tous les modules -->
-            <plugin>
-                <groupId>org.pitest</groupId>
-                <artifactId>pitest-maven</artifactId>
-                <version>1.17.0</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.pitest</groupId>
-                        <artifactId>pitest-junit5-plugin</artifactId>
-                        <version>1.2.1</version>
-                    </dependency>
-                </dependencies>
-                <configuration>
-                    <!-- Tester toutes les classes -->
-                    <targetClasses>
-                        <param>com.graphhopper.*</param>
-                    </targetClasses>
-                    <!-- Tous les tests -->
-                    <targetTests>
-                        <param>com.graphhopper.*</param>
-                    </targetTests>
-
-                <!--Exclure les packages/classes les plus lourds -->
-                <excludedClasses>
-                    <!-- Exclure les classes générées -->
-                    <excludedClass>*.*Test</excludedClass>
-                    <excludedClass>*.*IT</excludedClass>
-                    <!-- Exclure les builders et DTOs simples -->
-                    <excludedClass>*.dto.*</excludedClass>
-                    <excludedClass>*.*Builder</excludedClass>
-                    <!-- Exclure les packages connus pour être lourds -->
-                    <excludedClass>com.graphhopper.routing.weighting.*</excludedClass>
-                    <excludedClass>com.graphhopper.storage.*</excludedClass>
-                </excludedClasses>
-
-
-
-                    <!-- Configuration des mutateurs -->
-                    <mutators>
-                        <mutator>DEFAULTS</mutator>
-                    </mutators>
-                    <!-- Format de sortie -->
-                    <outputFormats>
-                        <outputFormat>HTML</outputFormat>
-                        <outputFormat>XML</outputFormat>
-                    </outputFormats>
-                    <!-- MODIFIÉ : JVM Args simplifiés sans référence à argLine -->
-                    <jvmArgs>
-                        <value>-Xmx2048m</value>
-                        <value>-Xms512m</value>
-                        <value>-Duser.language=en</value>
-                        <!-- Flags pour supporter les versions récentes de Java -->
-                        <value>--add-opens=java.base/java.lang=ALL-UNNAMED</value>
-                        <value>--add-opens=java.base/java.util=ALL-UNNAMED</value>
-                        <value>--add-opens=java.base/sun.nio.ch=ALL-UNNAMED</value>
-                    </jvmArgs>
-                    <!-- Nombre de threads -->
-                    <threads>1</threads>
-                    <!-- Verbose -->
-                    <verbose>false</verbose>
-                    <!-- Ne pas échouer s'il n'y a pas de mutations -->
-                    <failWhenNoMutations>false</failWhenNoMutations>
-                    <!-- Seuils -->
-                    <mutationThreshold>0</mutationThreshold>
-                    <coverageThreshold>0</coverageThreshold>
-                    <!-- Pas de timestamped reports -->
-                    <timestampedReports>false</timestampedReports>
-                    <!-- Désactiver l'historique pour éviter les problèmes de compatibilité -->
-                    <withHistory>false</withHistory>
-                    <!--Ne pas utiliser argLine de Surefire -->
-                    <useClasspathFile>false</useClasspathFile>
-                    <!--Timeout par test pour éviter les blocages -->
-                    <timeoutConstant>5000</timeoutConstant>
-                    <timeoutFactor>1.5</timeoutFactor>
-
-                     <features>
-                        <feature>+CLASSLIMIT(limit[50])</feature>
-                    </features>
-                    
-                    <!-- Exclusions pour réduire la charge -->
-                    <excludedMethods>
-                        <excludedMethod>hashCode</excludedMethod>
-                        <excludedMethod>equals</excludedMethod>
-                        <excludedMethod>toString</excludedMethod>
-                    </excludedMethods>
-
-                </configuration>
-            </plugin>
+                <!-- Pitest-->
+                <plugin>
+                    <groupId>org.pitest</groupId>
+                    <artifactId>pitest-maven</artifactId>
+                    <version>1.16.3</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.pitest</groupId>
+                            <artifactId>pitest-junit5-plugin</artifactId>
+                            <version>1.2.1</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <targetClasses>
+                            <param>com.graphhopper.*</param>
+                        </targetClasses>
+                        <targetTests>
+                            <param>com.graphhopper.*</param>
+                        </targetTests>
+                        <outputFormats>
+                            <outputFormat>XML</outputFormat>
+                            <outputFormat>HTML</outputFormat>
+                        </outputFormats>
+                        <timestampedReports>false</timestampedReports>
+                        <mutators>
+                            <mutator>DEFAULTS</mutator>
+                        </mutators>
+                        <threads>4</threads>
+                        <timeoutConstant>8000</timeoutConstant>
+                        <maxMutationsPerClass>0</maxMutationsPerClass>
+                        <verbose>false</verbose>
+                    </configuration>
+                </plugin>
 
             </plugins>
         </pluginManagement>
@@ -312,12 +256,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.2</version>
-                <configuration>
-                    <!-- MODIFIÉ : Utiliser ${argLine} au lieu de @{argLine} pour Pitest -->
-                    <argLine>${argLine} -Xmx190m -Xms190m -Duser.language=en</argLine>
-                </configuration>
-        </plugin>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>

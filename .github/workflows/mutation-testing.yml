@@ -1,0 +1,220 @@
+name: Mutation Testing
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  mutation-testing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 heures max pour le mutation testing
+    
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Fetch current and parent commit
+      
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+      
+      - name: Cache Maven artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+      
+      - name: Cache node
+        uses: actions/cache@v4
+        with:
+          path: web-bundle/node
+          key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os}}-node-
+      
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: web-bundle/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
+          restore-keys: |
+            ${{ runner.os}}-node_modules-
+      
+      - name: Build project (current commit)
+        run: mvn clean install -DskipTests -B
+      
+      - name: Run mutation testing on current commit
+        run: mvn org.pitest:pitest-maven:mutationCoverage -B
+        continue-on-error: true
+      
+      - name: Extract current mutation score
+        id: current-score
+        run: |
+          # Recherche du fichier mutations.xml dans tous les modules
+          MUTATION_FILES=$(find . -path "*/target/pit-reports/mutations.xml")
+          
+          if [ -z "$MUTATION_FILES" ]; then
+            echo "❌ No mutation report found!"
+            echo "score=0" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Calcul du score global (mutants killed / total mutants)
+          TOTAL_MUTANTS=0
+          KILLED_MUTANTS=0
+          
+          for file in $MUTATION_FILES; do
+            MUTANTS=$(grep -o "<mutation detected='[^']*' status='[^']*'" "$file" | wc -l)
+            KILLED=$(grep -o "status='KILLED'" "$file" | wc -l)
+            TOTAL_MUTANTS=$((TOTAL_MUTANTS + MUTANTS))
+            KILLED_MUTANTS=$((KILLED_MUTANTS + KILLED))
+          done
+          
+          if [ $TOTAL_MUTANTS -eq 0 ]; then
+            MUTATION_SCORE=0
+          else
+            MUTATION_SCORE=$((KILLED_MUTANTS * 100 / TOTAL_MUTANTS))
+          fi
+          
+          echo "Current commit: $KILLED_MUTANTS/$TOTAL_MUTANTS mutants killed"
+          echo "Current mutation score: $MUTATION_SCORE%"
+          echo "score=$MUTATION_SCORE" >> $GITHUB_OUTPUT
+          echo "killed=$KILLED_MUTANTS" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL_MUTANTS" >> $GITHUB_OUTPUT
+      
+      - name: Save current mutation report
+        run: |
+          mkdir -p mutation-reports/current
+          find . -path "*/target/pit-reports/*" -exec cp -r {} mutation-reports/current/ \;
+      
+      - name: Checkout parent commit
+        run: |
+          PARENT_COMMIT=$(git rev-parse HEAD^)
+          echo "Parent commit: $PARENT_COMMIT"
+          git checkout $PARENT_COMMIT
+      
+      - name: Build project (parent commit)
+        run: mvn clean install -DskipTests -B
+      
+      - name: Run mutation testing on parent commit
+        run: mvn org.pitest:pitest-maven:mutationCoverage -B
+        continue-on-error: true
+      
+      - name: Extract parent mutation score
+        id: parent-score
+        run: |
+          MUTATION_FILES=$(find . -path "*/target/pit-reports/mutations.xml")
+          
+          if [ -z "$MUTATION_FILES" ]; then
+            echo "⚠️  No mutation report found for parent commit"
+            echo "score=0" >> $GITHUB_OUTPUT
+            echo "killed=0" >> $GITHUB_OUTPUT
+            echo "total=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          TOTAL_MUTANTS=0
+          KILLED_MUTANTS=0
+          
+          for file in $MUTATION_FILES; do
+            MUTANTS=$(grep -o "<mutation detected='[^']*' status='[^']*'" "$file" | wc -l)
+            KILLED=$(grep -o "status='KILLED'" "$file" | wc -l)
+            TOTAL_MUTANTS=$((TOTAL_MUTANTS + MUTANTS))
+            KILLED_MUTANTS=$((KILLED_MUTANTS + KILLED))
+          done
+          
+          if [ $TOTAL_MUTANTS -eq 0 ]; then
+            MUTATION_SCORE=0
+          else
+            MUTATION_SCORE=$((KILLED_MUTANTS * 100 / TOTAL_MUTANTS))
+          fi
+          
+          echo "Parent commit: $KILLED_MUTANTS/$TOTAL_MUTANTS mutants killed"
+          echo "Parent mutation score: $MUTATION_SCORE%"
+          echo "score=$MUTATION_SCORE" >> $GITHUB_OUTPUT
+          echo "killed=$KILLED_MUTANTS" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL_MUTANTS" >> $GITHUB_OUTPUT
+      
+      - name: Compare mutation scores
+        run: |
+          CURRENT_SCORE=${{ steps.current-score.outputs.score }}
+          PARENT_SCORE=${{ steps.parent-score.outputs.score }}
+          CURRENT_KILLED=${{ steps.current-score.outputs.killed }}
+          CURRENT_TOTAL=${{ steps.current-score.outputs.total }}
+          PARENT_KILLED=${{ steps.parent-score.outputs.killed }}
+          PARENT_TOTAL=${{ steps.parent-score.outputs.total }}
+          
+          echo "=================================="
+          echo "📊 MUTATION TESTING RESULTS"
+          echo "=================================="
+          echo "Parent commit:  $PARENT_KILLED/$PARENT_TOTAL mutants killed ($PARENT_SCORE%)"
+          echo "Current commit: $CURRENT_KILLED/$CURRENT_TOTAL mutants killed ($CURRENT_SCORE%)"
+          echo "Difference:     $((CURRENT_SCORE - PARENT_SCORE))%"
+          echo "=================================="
+          
+          if [ $CURRENT_SCORE -lt $PARENT_SCORE ]; then
+            echo "❌ FAILURE: Mutation score decreased from $PARENT_SCORE% to $CURRENT_SCORE%"
+            echo "The build fails because the mutation testing score has decreased."
+            exit 1
+          elif [ $CURRENT_SCORE -eq $PARENT_SCORE ]; then
+            echo "✅ SUCCESS: Mutation score maintained at $CURRENT_SCORE%"
+          else
+            echo "✅ SUCCESS: Mutation score improved from $PARENT_SCORE% to $CURRENT_SCORE%"
+          fi
+      
+      - name: Upload mutation reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-reports
+          path: mutation-reports/
+          retention-days: 30
+      
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const currentScore = ${{ steps.current-score.outputs.score }};
+            const parentScore = ${{ steps.parent-score.outputs.score }};
+            const currentKilled = ${{ steps.current-score.outputs.killed }};
+            const currentTotal = ${{ steps.current-score.outputs.total }};
+            const parentKilled = ${{ steps.parent-score.outputs.killed }};
+            const parentTotal = ${{ steps.parent-score.outputs.total }};
+            const diff = currentScore - parentScore;
+            
+            let emoji = '✅';
+            let status = 'maintained';
+            if (diff < 0) {
+              emoji = '❌';
+              status = 'decreased';
+            } else if (diff > 0) {
+              emoji = '🎉';
+              status = 'improved';
+            }
+            
+            const body = `## ${emoji} Mutation Testing Results
+            
+            | Metric | Parent Commit | Current Commit | Difference |
+            |--------|---------------|----------------|------------|
+            | **Mutation Score** | ${parentScore}% | ${currentScore}% | ${diff > 0 ? '+' : ''}${diff}% |
+            | **Mutants Killed** | ${parentKilled}/${parentTotal} | ${currentKilled}/${currentTotal} | ${currentKilled - parentKilled} |
+            
+            **Status:** Mutation score has **${status}** ${emoji}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

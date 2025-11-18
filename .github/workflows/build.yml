@@ -13,7 +13,6 @@ jobs:
         with:
           java-version: ${{ matrix.java-version }}
           distribution: temurin
-      
       - name: Cache Maven artifacts
         uses: actions/cache@v4
         with:
@@ -21,7 +20,6 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-      
       - name: Cache node
         uses: actions/cache@v4
         with:
@@ -29,7 +27,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os}}-node-
-      
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
@@ -37,214 +34,5 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
           restore-keys: |
             ${{ runner.os}}-node_modules-
-      
-      - name: Build and Test ${{ matrix.java-version }}
+      - name: Build ${{ matrix.java-version }}
         run: mvn -B clean test
-
-  mutation-testing:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-java@v4
-        with:
-          java-version: 21
-          distribution: temurin
-      
-      - name: Cache Maven artifacts
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-      
-      - name: Cache mutation score baseline
-        id: cache-mutation-baseline
-        uses: actions/cache@v4
-        with:
-          path: .mutation-baseline
-          key: mutation-baseline-${{ github.ref_name }}
-          restore-keys: |
-            mutation-baseline-
-
-      #Compiler le projet (sans clean) avant Pitest
-      - name: Compile project
-        run: mvn -B install -DskipTests
-      
-      - name: Run Pitest mutation testing (skip core module)
-        run: |
-          # Tous les modules SAUF core qui est trop lourd
-          MODULES="web-api reader-gtfs tools map-matching client-hc navigation web example"
-          
-          echo "🧬 Mutation testing (core exclu car trop lourd pour CI)"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          for module in $MODULES; do
-            echo ""
-            echo "📦 Testing module: $module"
-            # FORCER les paramètres JVM via la ligne de commande
-            if mvn -B org.pitest:pitest-maven:mutationCoverage \
-              -DargLine="" \
-              -Dthreads=1 \
-              -DtimeoutConstant=5000 \
-              -DtimeoutFactor=1.5 \
-              -Dfeatures="+CLASSLIMIT(limit[50])" \
-              -pl $module -am; then
-              echo "✅ Module $module : SUCCÈS"
-            else
-              echo "⚠️  Module $module : ÉCHEC (continuer)"
-            fi
-          done
-          
-          echo ""
-          echo "ℹ️  Note: Le module 'core' est exclu du mutation testing CI"
-          echo "   car il nécessite trop de mémoire. Exécutez-le localement si nécessaire."
-      
-      - name: Aggregate Pitest reports
-        run: |
-          mkdir -p target/pit-reports-aggregate
-          
-          find . -path "*/target/pit-reports/*/index.html" -type f | while read report; do
-            module_name=$(echo "$report" | sed 's|./||' | sed 's|/target/.*||')
-            echo "📦 Trouvé rapport pour module: $module_name"
-            
-            mkdir -p "target/pit-reports-aggregate/$module_name"
-            cp -r "$(dirname "$report")"/* "target/pit-reports-aggregate/$module_name/"
-          done
-          
-          echo "✅ Rapports agrégés dans target/pit-reports-aggregate/"
-          ls -la target/pit-reports-aggregate/ || echo "Aucun rapport trouvé"
-      
-      - name: Extract global mutation score
-        id: extract-score
-        run: |
-          REPORT_FILES=$(find . -path "*/target/pit-reports/*/index.html" -type f)
-          
-          if [ -z "$REPORT_FILES" ]; then
-            echo "❌ Aucun rapport Pitest trouvé"
-            exit 1
-          fi
-          
-          echo "📄 Rapports trouvés :"
-          echo "$REPORT_FILES"
-          echo ""
-          
-          TOTAL_MUTATIONS=0
-          TOTAL_KILLED=0
-          
-          while IFS= read -r report; do
-            module=$(echo "$report" | sed 's|./||' | sed 's|/target/.*||')
-            echo "📊 Analyse du module: $module"
-            
-            xml_report="${report/index.html/mutations.xml}"
-            
-            if [ -f "$xml_report" ]; then
-              mutations=$(grep -oP 'detected="\K\d+' "$xml_report" | awk '{s+=$1} END {print s}')
-              killed=$(grep -oP 'status="KILLED"' "$xml_report" | wc -l)
-              
-              TOTAL_MUTATIONS=$((TOTAL_MUTATIONS + mutations))
-              TOTAL_KILLED=$((TOTAL_KILLED + killed))
-              
-              echo "  Mutations: $mutations, Tuées: $killed"
-            fi
-          done <<< "$REPORT_FILES"
-          
-          echo ""
-          echo "📈 Statistiques globales :"
-          echo "  Total mutations : $TOTAL_MUTATIONS"
-          echo "  Total tuées     : $TOTAL_KILLED"
-          
-          if [ "$TOTAL_MUTATIONS" -eq 0 ]; then
-            GLOBAL_SCORE=0
-            echo "⚠️  Aucune mutation détectée"
-          else
-            GLOBAL_SCORE=$((TOTAL_KILLED * 100 / TOTAL_MUTATIONS))
-          fi
-          
-          echo "global_score=$GLOBAL_SCORE" >> $GITHUB_OUTPUT
-          echo ""
-          echo "🎯 Score de mutation global : $GLOBAL_SCORE%"
-      
-      - name: Compare mutation score with baseline
-        run: |
-          CURRENT_SCORE=${{ steps.extract-score.outputs.global_score }}
-          
-          if [ ! -f .mutation-baseline/score.txt ]; then
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🆕 PREMIÈRE EXÉCUTION - CRÉATION DE LA BASELINE"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo ""
-            echo "Aucune baseline de mutation testing trouvée."
-            echo "Création de la baseline initiale avec un score de $CURRENT_SCORE%"
-            echo ""
-            mkdir -p .mutation-baseline
-            echo "$CURRENT_SCORE" > .mutation-baseline/score.txt
-            echo "Branche: ${{ github.ref_name }}" > .mutation-baseline/metadata.txt
-            echo "Commit: ${{ github.sha }}" >> .mutation-baseline/metadata.txt
-            echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .mutation-baseline/metadata.txt
-            echo "Java: 21 (pour Pitest)" >> .mutation-baseline/metadata.txt
-            echo ""
-            echo "✅ Baseline créée avec succès"
-            echo "⚠️  Les prochains commits seront comparés à cette baseline"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            exit 0
-          fi
-          
-          BASELINE_SCORE=$(cat .mutation-baseline/score.txt)
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔍 VÉRIFICATION DU SCORE DE MUTATION GLOBAL"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "📈 Score baseline : $BASELINE_SCORE%"
-          echo "📊 Score actuel   : $CURRENT_SCORE%"
-          echo ""
-          
-          if [ "$CURRENT_SCORE" -lt "$BASELINE_SCORE" ]; then
-            DIFF=$((BASELINE_SCORE - CURRENT_SCORE))
-            echo "❌ ❌ ❌ ÉCHEC ❌ ❌ ❌"
-            echo ""
-            echo "Le score de mutation a BAISSÉ de $DIFF point(s) !"
-            echo ""
-            echo "Détails :"
-            echo "  • Score attendu (baseline) : $BASELINE_SCORE%"
-            echo "  • Score obtenu            : $CURRENT_SCORE%"
-            echo "  • Régression              : -$DIFF%"
-            echo ""
-            echo "⚠️  Le build échoue car la qualité des tests a diminué."
-            echo "   Veuillez améliorer les tests avant de merger ce commit."
-            echo ""
-            echo "Baseline créée depuis :"
-            cat .mutation-baseline/metadata.txt
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            exit 1
-          elif [ "$CURRENT_SCORE" -gt "$BASELINE_SCORE" ]; then
-            DIFF=$((CURRENT_SCORE - BASELINE_SCORE))
-            echo "✅ ✅ ✅ AMÉLIORATION ✅ ✅ ✅"
-            echo ""
-            echo "Le score a augmenté de $DIFF point(s) ! 🎉"
-            echo ""
-            echo "📝 Mise à jour de la baseline..."
-            echo "$CURRENT_SCORE" > .mutation-baseline/score.txt
-            echo "Branche: ${{ github.ref_name }}" > .mutation-baseline/metadata.txt
-            echo "Commit: ${{ github.sha }}" >> .mutation-baseline/metadata.txt
-            echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .mutation-baseline/metadata.txt
-            echo "Java: 21 (pour Pitest)" >> .mutation-baseline/metadata.txt
-            echo ""
-            echo "✅ Nouvelle baseline sauvegardée : $CURRENT_SCORE%"
-          else
-            echo "✅ Score maintenu à $CURRENT_SCORE%"
-            echo ""
-            echo "Le score de mutation est identique à la baseline."
-          fi
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      
-      - name: Upload Pitest reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pitest-reports-all-modules
-          path: target/pit-reports-aggregate/
-          retention-days: 30
