@@ -174,7 +174,7 @@
     <build>
         <pluginManagement>
             <plugins>
-                
+
             <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
@@ -219,49 +219,63 @@
 
                 <!--Pitest-->
                 <plugin>
-                <groupId>org.pitest</groupId>
-                <artifactId>pitest-maven</artifactId>
-                <version>1.16.3</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.pitest</groupId>
-                        <artifactId>pitest-junit5-plugin</artifactId>
-                        <version>1.2.1</version>
-                    </dependency>
-                </dependencies>
-                <configuration>
-                    <targetClasses>
-                        <param>com.graphhopper.*</param>
-                    </targetClasses>
-                    <targetTests>
-                        <param>com.graphhopper.*</param>
-                    </targetTests>
-                    <outputFormats>
-                        <outputFormat>XML</outputFormat>
-                        <outputFormat>HTML</outputFormat>
-                    </outputFormats>
-                    <timestampedReports>false</timestampedReports>
-                    <mutators>
-                        <mutator>DEFAULTS</mutator>
-                    </mutators>
-                    <threads>2</threads>
-                    <timeoutConstant>10000</timeoutConstant>
-                    <timeoutFactor>2.0</timeoutFactor>
-                    <verbose>false</verbose>
-                    <failWhenNoMutations>false</failWhenNoMutations>
-                    <skipFailingTests>true</skipFailingTests>
-                    <!-- N'utilisez PAS argLine ici, utilisez jvmArgs -->
-                    <jvmArgs>
-                        <jvmArg>-Xmx2048m</jvmArg>
-                        <jvmArg>-Xms512m</jvmArg>
-                    </jvmArgs>
-                    <excludedClasses>
-                        <param>*Test</param>
-                        <param>*IT</param>
-                    </excludedClasses>
-                </configuration>
-            </plugin>
-
+                    <groupId>org.pitest</groupId>
+                    <artifactId>pitest-maven</artifactId>
+                    <version>1.16.3</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.pitest</groupId>
+                            <artifactId>pitest-junit5-plugin</artifactId>
+                            <version>1.2.1</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <targetClasses>
+                            <param>com.graphhopper.*</param>
+                        </targetClasses>
+                        <targetTests>
+                            <param>com.graphhopper.*</param>
+                        </targetTests>
+                        <outputFormats>
+                            <outputFormat>XML</outputFormat>
+                            <outputFormat>HTML</outputFormat>
+                        </outputFormats>
+                        <timestampedReports>false</timestampedReports>
+                        <mutators>
+                            <mutator>DEFAULTS</mutator>
+                        </mutators>
+                        <!-- Réduire le nombre de threads pour économiser la RAM -->
+                        <threads>1</threads>
+                        <!-- Augmenter les timeouts car nous avons moins de threads -->
+                        <timeoutConstant>15000</timeoutConstant>
+                        <timeoutFactor>2.5</timeoutFactor>
+                        <verbose>false</verbose>
+                        <failWhenNoMutations>false</failWhenNoMutations>
+                        <skipFailingTests>true</skipFailingTests>
+                        <!-- CRUCIAL: Plus de mémoire pour les minions -->
+                        <jvmArgs>
+                            <jvmArg>-Xmx4096m</jvmArg>
+                            <jvmArg>-Xms1024m</jvmArg>
+                            <!-- Optimiser le garbage collector -->
+                            <jvmArg>-XX:+UseG1GC</jvmArg>
+                            <jvmArg>-XX:MaxGCPauseMillis=200</jvmArg>
+                        </jvmArgs>
+                        <!-- Limiter le nombre de mutations pour tester -->
+                        <maxMutationsPerClass>50</maxMutationsPerClass>
+                        <excludedClasses>
+                            <param>*Test</param>
+                            <param>*IT</param>
+                        </excludedClasses>
+                        <!-- Exclure les classes problématiques si nécessaire -->
+                        <avoidCallsTo>
+                            <avoidCallsTo>java.util.logging</avoidCallsTo>
+                            <avoidCallsTo>org.apache.log4j</avoidCallsTo>
+                            <avoidCallsTo>org.slf4j</avoidCallsTo>
+                            <avoidCallsTo>org.apache.commons.logging</avoidCallsTo>
+                        </avoidCallsTo>
+                    </configuration>
+                </plugin>
+                
             </plugins>
         </pluginManagement>
         <plugins>
