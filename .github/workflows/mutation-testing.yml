@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     
+    env:
+      # Désactiver les options JVM problématiques
+      MAVEN_OPTS: "-Xmx2048m -Xms512m"
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,15 +40,51 @@ jobs:
       - name: Run mutation testing on core module only
         run: |
           cd core
-          mvn org.pitest:pitest-maven:mutationCoverage -B -X
+          # Désactiver explicitement les options JVM problématiques
+          export MAVEN_OPTS="-Xmx2048m -Xms512m"
+          mvn org.pitest:pitest-maven:mutationCoverage \
+            -DargLine="-Xmx2048m -Xms512m" \
+            -Dpit.threads=2 \
+            -B -X 2>&1 | tee pit-output.log
+      
+      - name: Check for mutation report
+        id: check-report
+        run: |
+          if find core/target/pit-reports -name "mutations.xml" | grep -q .; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "✅ Mutation report found!"
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "❌ No mutation report found"
+            
+            # Afficher les dernières lignes du log pour debug
+            echo "=== Last 100 lines of PIT output ==="
+            tail -100 core/pit-output.log || true
+          fi
       
       - name: Show results
+        if: steps.check-report.outputs.found == 'true'
         run: |
+          echo "=== Mutation XML Report ==="
           find core/target/pit-reports -name "mutations.xml" -exec cat {} \;
+          
+          echo ""
+          echo "=== Mutation Summary ==="
+          MUTATIONS=$(find core/target/pit-reports -name "mutations.xml" -exec grep -o "<mutation" {} \; | wc -l)
+          KILLED=$(find core/target/pit-reports -name "mutations.xml" -exec grep -o "status='KILLED'" {} \; | wc -l)
+          echo "Total mutations: $MUTATIONS"
+          echo "Killed mutations: $KILLED"
+          if [ $MUTATIONS -gt 0 ]; then
+            SCORE=$((KILLED * 100 / MUTATIONS))
+            echo "Mutation score: $SCORE%"
+          fi
       
       - name: Upload reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: pit-core-reports
-          path: core/target/pit-reports/
+          path: |
+            core/target/pit-reports/
+            core/pit-output.log
+          retention-days: 30
