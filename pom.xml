@@ -230,6 +230,7 @@
                         </dependency>
                     </dependencies>
                     <configuration>
+                        <!-- targetClasses sera surchargé par le workflow pour les fichiers modifiés -->
                         <targetClasses>
                             <param>com.graphhopper.*</param>
                         </targetClasses>
@@ -244,31 +245,30 @@
                         <mutators>
                             <mutator>DEFAULTS</mutator>
                         </mutators>
-                        <!-- Réduire le nombre de threads pour économiser la RAM -->
-                        <threads>1</threads>
-                        <!-- Augmenter les timeouts car nous avons moins de threads -->
-                        <timeoutConstant>15000</timeoutConstant>
+                        <threads>2</threads>
+                        <timeoutConstant>20000</timeoutConstant>
                         <timeoutFactor>2.5</timeoutFactor>
                         <verbose>false</verbose>
                         <failWhenNoMutations>false</failWhenNoMutations>
                         <skipFailingTests>true</skipFailingTests>
-                        <!-- CRUCIAL: Plus de mémoire pour les minions -->
+                        
+                        <features>
+                            <feature>+CLASSLIMIT(limit[30])</feature>
+                        </features>
+                        
                         <jvmArgs>
-                            <jvmArg>-Xmx4096m</jvmArg>
-                            <jvmArg>-Xms1024m</jvmArg>
-                            <!-- Optimiser le garbage collector -->
+                            <jvmArg>-Xmx6144m</jvmArg>
+                            <jvmArg>-Xms2048m</jvmArg>
                             <jvmArg>-XX:+UseG1GC</jvmArg>
                             <jvmArg>-XX:MaxGCPauseMillis=200</jvmArg>
+                            <jvmArg>-Duser.language=en</jvmArg>
                         </jvmArgs>
-                        <!-- Limiter le nombre de mutations pour tester -->
-                        <features>
-                            <feature>+CLASSLIMIT(limit[50])</feature>
-                        </features>
+                        
                         <excludedClasses>
                             <param>*Test</param>
                             <param>*IT</param>
                         </excludedClasses>
-                        <!-- Exclure les classes problématiques si nécessaire -->
+                        
                         <avoidCallsTo>
                             <avoidCallsTo>java.util.logging</avoidCallsTo>
                             <avoidCallsTo>org.apache.log4j</avoidCallsTo>

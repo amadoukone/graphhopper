@@ -11,21 +11,21 @@ on:
 jobs:
   mutation-testing:
     runs-on: ubuntu-latest
-    timeout-minutes: 240  # Augmenté à 4h
+    timeout-minutes: 120
     
     steps:
       - name: Checkout current commit
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 50  # Augmenter pour avoir plus d'historique
       
-      - name: Set up Java with more memory
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           java-version: 17
           distribution: temurin
       
-      - name: Configure Maven with more memory
+      - name: Configure Maven
         run: |
           mkdir -p .mvn
           cat > .mvn/maven.config << 'EOF'
@@ -37,10 +37,6 @@ jobs:
           -Xmx4096m
           -Xms1024m
           EOF
-          
-          echo "=== Maven Configuration ==="
-          cat .mvn/maven.config
-          cat .mvn/jvm.config
       
       - name: Cache Maven artifacts
         uses: actions/cache@v4
@@ -53,46 +49,145 @@ jobs:
       - name: Build project
         run: mvn clean install -DskipTests
       
-      - name: Run mutation testing (core module)
+      - name: Detect changed Java classes in core module
+        id: changed-files
+        run: |
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║         DETECTING CHANGED JAVA CLASSES            ║"
+          echo "╚════════════════════════════════════════════════════╝"
+          echo ""
+          
+          if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "⚠️  First commit or shallow clone - testing all classes"
+            echo "has_changes=all" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Trouver les fichiers Java modifiés dans le module core
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | \
+            grep '^core/src/main/java/.*\.java$' | \
+            grep -v 'Test\.java$' | \
+            sed 's|core/src/main/java/||' | \
+            sed 's|\.java$||' | \
+            tr '/' '.')
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "✅ No Java source files changed in core module"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Compter le nombre de classes modifiées
+          NUM_CLASSES=$(echo "$CHANGED_FILES" | wc -l)
+          
+          echo "📝 Changed classes ($NUM_CLASSES):"
+          echo "$CHANGED_FILES" | sed 's/^/  - /'
+          echo ""
+          
+          # Convertir en format PIT (séparé par des virgules)
+          CLASSES_FOR_PIT=$(echo "$CHANGED_FILES" | tr '\n' ',' | sed 's/,$//')
+          
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "classes=$CLASSES_FOR_PIT" >> $GITHUB_OUTPUT
+          echo "count=$NUM_CLASSES" >> $GITHUB_OUTPUT
+          
+          # Sauvegarder la liste pour le rapport
+          echo "$CHANGED_FILES" > changed-classes.txt
+      
+      - name: Run mutation testing on changed classes
+        if: steps.changed-files.outputs.has_changes == 'true'
         id: run-current-pit
         run: |
           set +e
           cd core
           
-          echo "Starting mutation testing at $(date)"
-          echo "Available memory: $(free -h)"
+          CLASSES="${{ steps.changed-files.outputs.classes }}"
+          NUM_CLASSES="${{ steps.changed-files.outputs.count }}"
           
-          mvn org.pitest:pitest-maven:mutationCoverage 2>&1 | tee pit-output.log
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║    MUTATION TESTING ON CHANGED CLASSES ($NUM_CLASSES)       ║"
+          echo "╚════════════════════════════════════════════════════╝"
+          echo ""
+          echo "Starting at: $(date)"
+          echo "Available memory: $(free -h | grep Mem)"
+          echo ""
+          
+          # Lancer PIT uniquement sur les classes modifiées
+          mvn org.pitest:pitest-maven:mutationCoverage \
+            -DargLine="-Xmx6144m -Xms2048m -Duser.language=en" \
+            -DtargetClasses="$CLASSES" \
+            2>&1 | tee pit-output.log
           
           EXIT_CODE=$?
           
-          echo "Mutation testing finished at $(date) with exit code $EXIT_CODE"
+          echo ""
+          echo "Finished at: $(date)"
+          echo ""
           
+          # Vérifier si un rapport a été généré
           if find target/pit-reports -name "mutations.xml" 2>/dev/null | grep -q .; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Mutation report generated"
             
-            # Afficher un résumé des erreurs mémoire
+            # Analyser les problèmes rencontrés
             MEMORY_ERRORS=$(grep -c "MEMORY_ERROR" pit-output.log || echo "0")
-            echo "Memory errors encountered: $MEMORY_ERRORS"
+            TIMEOUT_ERRORS=$(grep -c "TIMED_OUT" pit-output.log || echo "0")
+            
+            echo "memory_errors=$MEMORY_ERRORS" >> $GITHUB_OUTPUT
+            echo "timeout_errors=$TIMEOUT_ERRORS" >> $GITHUB_OUTPUT
+            
+            if [ "$MEMORY_ERRORS" -gt 0 ] || [ "$TIMEOUT_ERRORS" -gt 0 ]; then
+              echo "⚠️  Report generated with issues:"
+              echo "   - Memory errors: $MEMORY_ERRORS"
+              echo "   - Timeouts: $TIMEOUT_ERRORS"
+            else
+              echo "✅ Report generated successfully"
+            fi
             
             exit 0
           else
             echo "success=false" >> $GITHUB_OUTPUT
             echo "❌ No mutation report generated"
-            
+            echo ""
             echo "=== Last 100 lines of output ==="
             tail -100 pit-output.log
-            
-            echo "=== Memory errors ==="
-            grep "MEMORY_ERROR\|OutOfMemory" pit-output.log || echo "No memory errors found in log"
-            
             exit 1
           fi
       
+      - name: Run mutation testing on all classes (fallback)
+        if: steps.changed-files.outputs.has_changes == 'all'
+        id: run-current-pit-all
+        run: |
+          set +e
+          cd core
+          
+          echo "⚠️  Testing ALL classes (first commit or no parent)"
+          
+          mvn org.pitest:pitest-maven:mutationCoverage \
+            -DargLine="-Xmx6144m -Xms2048m -Duser.language=en" \
+            2>&1 | tee pit-output.log
+          
+          if find target/pit-reports -name "mutations.xml" 2>/dev/null | grep -q .; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+      
+      - name: Skip mutation testing
+        if: steps.changed-files.outputs.has_changes == 'false'
+        run: |
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║         NO JAVA CLASSES CHANGED - SKIPPING        ║"
+          echo "╚════════════════════════════════════════════════════╝"
+          echo ""
+          echo "✅ No mutation testing needed for this commit"
+      
       - name: Extract current mutation score
         id: current-score
-        if: steps.run-current-pit.outputs.success == 'true'
+        if: |
+          (steps.run-current-pit.outputs.success == 'true' || 
+           steps.run-current-pit-all.outputs.success == 'true')
         run: |
           cd core
           MUTATION_FILE=$(find target/pit-reports -name "mutations.xml")
@@ -109,6 +204,7 @@ jobs:
           SURVIVED=$(grep -o "status='SURVIVED'" "$MUTATION_FILE" | wc -l)
           TIMEOUT=$(grep -o "status='TIMED_OUT'" "$MUTATION_FILE" | wc -l || echo "0")
           MEMORY=$(grep -o "status='MEMORY_ERROR'" "$MUTATION_FILE" | wc -l || echo "0")
+          NO_COVERAGE=$(grep -o "status='NO_COVERAGE'" "$MUTATION_FILE" | wc -l || echo "0")
           
           SCORE=$((TOTAL > 0 ? KILLED * 100 / TOTAL : 0))
           
@@ -118,25 +214,36 @@ jobs:
           echo "survived=$SURVIVED" >> $GITHUB_OUTPUT
           echo "timeout=$TIMEOUT" >> $GITHUB_OUTPUT
           echo "memory=$MEMORY" >> $GITHUB_OUTPUT
+          echo "no_coverage=$NO_COVERAGE" >> $GITHUB_OUTPUT
           
-          echo "╔════════════════════════════════════════╗"
-          echo "║   MUTATION TESTING RESULTS (Current)   ║"
-          echo "╚════════════════════════════════════════╝"
-          echo "Total mutants:    $TOTAL"
-          echo "Killed:           $KILLED ($SCORE%)"
-          echo "Survived:         $SURVIVED"
-          echo "Timed out:        $TIMEOUT"
-          echo "Memory errors:    $MEMORY"
-          echo "════════════════════════════════════════"
+          echo ""
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║         CURRENT COMMIT MUTATION RESULTS           ║"
+          echo "╚════════════════════════════════════════════════════╝"
+          echo ""
+          echo "  Total mutants:      $TOTAL"
+          echo "  ✅ Killed:          $KILLED ($SCORE%)"
+          echo "  ❌ Survived:        $SURVIVED"
+          echo "  ⏱️  Timed out:       $TIMEOUT"
+          echo "  💾 Memory errors:   $MEMORY"
+          echo "  🚫 No coverage:     $NO_COVERAGE"
+          echo ""
+          echo "════════════════════════════════════════════════════"
       
       - name: Save current mutation report
         if: steps.current-score.outputs.found == 'true'
         run: |
           mkdir -p mutation-reports/current
-          cp -r core/target/pit-reports/* mutation-reports/current/
+          cp -r core/target/pit-reports/* mutation-reports/current/ 2>/dev/null || true
+          
+          # Copier aussi la liste des classes testées
+          if [ -f changed-classes.txt ]; then
+            cp changed-classes.txt mutation-reports/current/
+          fi
       
       - name: Check parent commit
         id: check-parent
+        if: steps.changed-files.outputs.has_changes == 'true'
         run: |
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -147,29 +254,35 @@ jobs:
       
       - name: Checkout parent commit
         if: steps.check-parent.outputs.exists == 'true'
-        run: git checkout ${{ steps.check-parent.outputs.commit }}
+        run: |
+          git checkout ${{ steps.check-parent.outputs.commit }}
       
       - name: Build parent commit
         if: steps.check-parent.outputs.exists == 'true'
         run: mvn clean install -DskipTests
       
-      - name: Run mutation testing on parent
+      - name: Run mutation testing on parent (same classes)
         if: steps.check-parent.outputs.exists == 'true'
         id: run-parent-pit
         run: |
           set +e
           cd core
           
-          echo "Starting parent mutation testing at $(date)"
+          CLASSES="${{ steps.changed-files.outputs.classes }}"
           
-          mvn org.pitest:pitest-maven:mutationCoverage 2>&1 | tee pit-parent-output.log
+          echo "Testing parent commit on same classes..."
+          
+          mvn org.pitest:pitest-maven:mutationCoverage \
+            -DargLine="-Xmx6144m -Xms2048m -Duser.language=en" \
+            -DtargetClasses="$CLASSES" \
+            2>&1 | tee pit-parent-output.log
           
           if find target/pit-reports -name "mutations.xml" 2>/dev/null | grep -q .; then
             echo "success=true" >> $GITHUB_OUTPUT
             echo "✅ Parent report generated"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "⚠️  No parent report"
+            echo "⚠️  Could not generate parent report"
           fi
           exit 0
       
@@ -189,27 +302,34 @@ jobs:
           
           TOTAL=$(grep -o "<mutation detected='[^']*' status='[^']*'" "$MUTATION_FILE" | wc -l)
           KILLED=$(grep -o "status='KILLED'" "$MUTATION_FILE" | wc -l)
+          SURVIVED=$(grep -o "status='SURVIVED'" "$MUTATION_FILE" | wc -l)
+          
           SCORE=$((TOTAL > 0 ? KILLED * 100 / TOTAL : 0))
           
           echo "score=$SCORE" >> $GITHUB_OUTPUT
           echo "killed=$KILLED" >> $GITHUB_OUTPUT
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "survived=$SURVIVED" >> $GITHUB_OUTPUT
           
           echo "Parent: $KILLED/$TOTAL killed ($SCORE%)"
       
-      - name: Compare scores and fail if decreased
+      - name: Compare scores and determine result
         if: steps.current-score.outputs.found == 'true'
+        id: comparison
         run: |
           CURRENT=${{ steps.current-score.outputs.score }}
           CURRENT_KILLED=${{ steps.current-score.outputs.killed }}
           CURRENT_TOTAL=${{ steps.current-score.outputs.total }}
+          NUM_CLASSES="${{ steps.changed-files.outputs.count }}"
           
           echo ""
-          echo "╔══════════════════════════════════════════════════╗"
-          echo "║       MUTATION TESTING COMPARISON (Core)        ║"
-          echo "╚══════════════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║           MUTATION TESTING COMPARISON             ║"
+          echo "╚════════════════════════════════════════════════════╝"
           echo ""
-          echo "Current: $CURRENT_KILLED/$CURRENT_TOTAL killed ($CURRENT%)"
+          echo "Classes tested: $NUM_CLASSES"
+          echo ""
+          echo "Current commit: $CURRENT_KILLED/$CURRENT_TOTAL killed ($CURRENT%)"
           
           if [ "${{ steps.parent-score.outputs.found }}" == "true" ]; then
             PARENT=${{ steps.parent-score.outputs.score }}
@@ -217,28 +337,36 @@ jobs:
             PARENT_TOTAL=${{ steps.parent-score.outputs.total }}
             DIFF=$((CURRENT - PARENT))
             
-            echo "Parent:  $PARENT_KILLED/$PARENT_TOTAL killed ($PARENT%)"
-            echo "Diff:    ${DIFF}%"
+            echo "Parent commit:  $PARENT_KILLED/$PARENT_TOTAL killed ($PARENT%)"
+            echo ""
+            echo "Difference: ${DIFF}% (${CURRENT}% - ${PARENT}%)"
             echo ""
             
             if [ $CURRENT -lt $PARENT ]; then
-              echo "❌ FAILURE: Score decreased from $PARENT% to $CURRENT%"
+              echo "result=decreased" >> $GITHUB_OUTPUT
+              echo "❌ FAILURE: Mutation score DECREASED from $PARENT% to $CURRENT%"
               echo ""
-              echo "Your changes reduced mutation testing quality."
-              echo "Please review survived mutants and improve tests."
+              echo "Your changes reduced test quality for the modified classes."
+              echo "Please add tests to kill more mutants before merging."
               exit 1
             elif [ $CURRENT -eq $PARENT ]; then
-              echo "✅ SUCCESS: Score maintained at $CURRENT%"
+              echo "result=maintained" >> $GITHUB_OUTPUT
+              echo "✅ SUCCESS: Mutation score MAINTAINED at $CURRENT%"
             else
-              echo "🎉 SUCCESS: Score improved from $PARENT% to $CURRENT%!"
-              echo "You killed $((CURRENT_KILLED - PARENT_KILLED)) more mutants!"
+              echo "result=improved" >> $GITHUB_OUTPUT
+              echo "🎉 SUCCESS: Mutation score IMPROVED from $PARENT% to $CURRENT%!"
+              echo ""
+              echo "Great job! You killed $((CURRENT_KILLED - PARENT_KILLED)) more mutants!"
             fi
           else
+            echo "result=baseline" >> $GITHUB_OUTPUT
             echo ""
-            echo "✅ Baseline established at $CURRENT%"
+            echo "✅ SUCCESS: Baseline established at $CURRENT%"
+            echo ""
+            echo "No parent commit available for comparison."
           fi
       
-      - name: Upload reports
+      - name: Upload mutation reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -247,9 +375,10 @@ jobs:
             mutation-reports/
             core/target/pit-reports/
             core/*.log
+            changed-classes.txt
           retention-days: 30
       
-      - name: Comment PR
+      - name: Comment PR with results
         if: github.event_name == 'pull_request' && steps.current-score.outputs.found == 'true'
         uses: actions/github-script@v7
         with:
@@ -260,41 +389,76 @@ jobs:
               total: parseInt('${{ steps.current-score.outputs.total }}'),
               survived: parseInt('${{ steps.current-score.outputs.survived }}'),
               timeout: parseInt('${{ steps.current-score.outputs.timeout }}'),
-              memory: parseInt('${{ steps.current-score.outputs.memory }}')
+              memory: parseInt('${{ steps.current-score.outputs.memory }}'),
+              noCoverage: parseInt('${{ steps.current-score.outputs.no_coverage }}')
             };
             
-            let body = `## 🧬 Mutation Testing Results (Core Module)\n\n`;
+            const numClasses = parseInt('${{ steps.changed-files.outputs.count }}');
+            const hasParent = '${{ steps.parent-score.outputs.found }}' === 'true';
             
-            if ('${{ steps.parent-score.outputs.found }}' === 'true') {
+            let body = `## 🧬 Mutation Testing Results\n\n`;
+            body += `**Scope:** ${numClasses} modified class${numClasses !== 1 ? 'es' : ''} in core module\n\n`;
+            
+            if (hasParent) {
               const parent = {
                 score: parseInt('${{ steps.parent-score.outputs.score }}'),
                 killed: parseInt('${{ steps.parent-score.outputs.killed }}'),
-                total: parseInt('${{ steps.parent-score.outputs.total }}')
+                total: parseInt('${{ steps.parent-score.outputs.total }}'),
+                survived: parseInt('${{ steps.parent-score.outputs.survived }}')
               };
+              
               const diff = current.score - parent.score;
-              const emoji = diff < 0 ? '🔴' : diff > 0 ? '🟢' : '⚪';
+              const killedDiff = current.killed - parent.killed;
+              const survivedDiff = current.survived - parent.survived;
+              
+              let statusEmoji = '⚪';
+              let statusText = 'maintained';
+              
+              if (diff < 0) {
+                statusEmoji = '🔴';
+                statusText = 'decreased';
+              } else if (diff > 0) {
+                statusEmoji = '🟢';
+                statusText = 'improved';
+              }
               
               body += `| Metric | Parent | Current | Diff |\n`;
               body += `|--------|--------|---------|------|\n`;
-              body += `| **Score** | ${parent.score}% | ${current.score}% | ${emoji} ${diff > 0 ? '+' : ''}${diff}% |\n`;
-              body += `| **Killed** | ${parent.killed}/${parent.total} | ${current.killed}/${current.total} | ${current.killed - parent.killed} |\n`;
-              body += `| **Survived** | ${parent.total - parent.killed} | ${current.survived} | ${current.survived - (parent.total - parent.killed)} |\n\n`;
+              body += `| **Mutation Score** | ${parent.score}% | ${current.score}% | ${statusEmoji} ${diff > 0 ? '+' : ''}${diff}% |\n`;
+              body += `| **Killed** | ${parent.killed}/${parent.total} | ${current.killed}/${current.total} | ${killedDiff > 0 ? '+' : ''}${killedDiff} |\n`;
+              body += `| **Survived** | ${parent.survived} | ${current.survived} | ${survivedDiff > 0 ? '+' : ''}${survivedDiff} |\n\n`;
+              
+              body += `### ${statusEmoji} Status: **${statusText}**\n\n`;
+              
+              if (diff < 0) {
+                body += `⚠️ **Action required:** The mutation score decreased. Please improve tests for the modified classes.\n\n`;
+              } else if (diff > 0) {
+                body += `🎉 **Excellent!** You killed ${killedDiff} more mutant${killedDiff !== 1 ? 's' : ''}!\n\n`;
+              }
             } else {
               body += `| Metric | Value |\n`;
               body += `|--------|-------|\n`;
-              body += `| **Score** | ${current.score}% |\n`;
+              body += `| **Mutation Score** | ${current.score}% |\n`;
               body += `| **Killed** | ${current.killed}/${current.total} |\n`;
               body += `| **Survived** | ${current.survived} |\n\n`;
-              body += `✅ Baseline established\n\n`;
+              body += `✅ Baseline mutation score established\n\n`;
             }
             
-            if (current.timeout > 0 || current.memory > 0) {
-              body += `\n⚠️ **Issues:**\n`;
-              if (current.timeout > 0) body += `- ${current.timeout} mutation(s) timed out\n`;
-              if (current.memory > 0) body += `- ${current.memory} mutation(s) had memory errors\n`;
+            // Ajouter les problèmes si présents
+            const issues = [];
+            if (current.timeout > 0) issues.push(`⏱️ ${current.timeout} timeout(s)`);
+            if (current.memory > 0) issues.push(`💾 ${current.memory} memory error(s)`);
+            if (current.noCoverage > 0) issues.push(`🚫 ${current.noCoverage} without coverage`);
+            
+            if (issues.length > 0) {
+              body += `\n**Issues encountered:** ${issues.join(', ')}\n`;
             }
             
-            body += `\n---\n*Powered by [PIT](https://pitest.org/)*`;
+            body += `\n---\n`;
+            body += `<details><summary>📋 View tested classes</summary>\n\n`;
+            body += `\`\`\`\n${{ steps.changed-files.outputs.classes }}\n\`\`\`\n\n`;
+            body += `</details>\n\n`;
+            body += `*Mutation testing powered by [PIT](https://pitest.org/)*`;
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
