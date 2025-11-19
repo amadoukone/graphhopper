@@ -63,36 +63,72 @@ jobs:
             exit 0
           fi
           
-          # Trouver les fichiers Java modifiés dans le module core
-          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | \
-            grep '^core/src/main/java/.*\.java$' | \
-            grep -v 'Test\.java$' | \
-            sed 's|core/src/main/java/||' | \
-            sed 's|\.java$||' | \
-            tr '/' '.')
+          # Récupérer tous les fichiers Java modifiés (source et test)
+          ALL_JAVA_FILES=$(git diff --name-only HEAD^ HEAD | grep '^core/src/.*/.*\.java$' || true)
           
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "✅ No Java source files changed in core module"
+          if [ -z "$ALL_JAVA_FILES" ]; then
+            echo "✅ No Java files changed in core module"
             echo "has_changes=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           
-          # Compter le nombre de classes modifiées
-          NUM_CLASSES=$(echo "$CHANGED_FILES" | wc -l)
-          
-          echo "📝 Changed classes ($NUM_CLASSES):"
-          echo "$CHANGED_FILES" | sed 's/^/  - /'
+          echo "📄 Changed files:"
+          echo "$ALL_JAVA_FILES" | sed 's/^/  - /'
           echo ""
           
-          # Convertir en format PIT (séparé par des virgules)
-          CLASSES_FOR_PIT=$(echo "$CHANGED_FILES" | tr '\n' ',' | sed 's/,$//')
+          # Extraire les classes à tester
+          CLASSES_TO_TEST=""
+          
+          # 1. Ajouter les classes source modifiées
+          for file in $ALL_JAVA_FILES; do
+            if [[ "$file" =~ ^core/src/main/java/(.*)\.java$ ]]; then
+              class_name="${BASH_REMATCH[1]}"
+              class_name="${class_name//\//.}"
+              CLASSES_TO_TEST="$CLASSES_TO_TEST$class_name"$'\n'
+              echo "  ➕ Source: $class_name"
+            fi
+          done
+          
+          # 2. Pour les tests modifiés, ajouter leur classe source correspondante
+          for file in $ALL_JAVA_FILES; do
+            if [[ "$file" =~ ^core/src/test/java/(.*)Test\.java$ ]]; then
+              class_name="${BASH_REMATCH[1]}"
+              class_name="${class_name//\//.}"
+              
+              # Vérifier si la classe source existe
+              source_file="core/src/main/java/${BASH_REMATCH[1]}.java"
+              if [ -f "$source_file" ]; then
+                CLASSES_TO_TEST="$CLASSES_TO_TEST$class_name"$'\n'
+                echo "  ➕ Test modified → Testing source: $class_name"
+              else
+                echo "  ⚠️  Test modified but no source found: $class_name"
+              fi
+            fi
+          done
+          
+          # Supprimer les doublons et les lignes vides
+          CLASSES_TO_TEST=$(echo "$CLASSES_TO_TEST" | sort -u | grep -v '^$')
+          
+          if [ -z "$CLASSES_TO_TEST" ]; then
+            echo ""
+            echo "✅ No testable classes found"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          NUM_CLASSES=$(echo "$CLASSES_TO_TEST" | wc -l)
+          CLASSES_FOR_PIT=$(echo "$CLASSES_TO_TEST" | tr '\n' ',' | sed 's/,$//')
+          
+          echo ""
+          echo "🎯 Classes to test ($NUM_CLASSES):"
+          echo "$CLASSES_TO_TEST" | sed 's/^/  - /'
+          echo ""
           
           echo "has_changes=true" >> $GITHUB_OUTPUT
           echo "classes=$CLASSES_FOR_PIT" >> $GITHUB_OUTPUT
           echo "count=$NUM_CLASSES" >> $GITHUB_OUTPUT
           
-          # Sauvegarder la liste pour le rapport
-          echo "$CHANGED_FILES" > changed-classes.txt
+          echo "$CLASSES_TO_TEST" > changed-classes.txt
       
       - name: Run mutation testing on changed classes
         if: steps.changed-files.outputs.has_changes == 'true'

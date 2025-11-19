@@ -312,8 +312,8 @@ public class Path {
         void finish();
     }
 
-    //methode sans test pour validation de mutation testing
+    /*methode sans test pour validation de mutation testing
     public static boolean isPositive(int n) {
     return n > 0;
-    }
+    }*/
 }
