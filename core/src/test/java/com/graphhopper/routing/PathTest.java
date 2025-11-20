@@ -300,6 +300,8 @@ public class PathTest {
 
         List<PathDetail> averageSpeedDetails = details.get(AVERAGE_SPEED);
         assertEquals(4, averageSpeedDetails.size());
+
+        /* mise en commentaire pour valider la degration de mutation testing
         assertEquals(162.2, (double) averageSpeedDetails.get(0).getValue(), 1.e-3);
         assertEquals(327.3, (double) averageSpeedDetails.get(1).getValue(), 1.e-3);
         assertEquals(36.0, (double) averageSpeedDetails.get(2).getValue(), 1.e-3);
@@ -309,8 +311,8 @@ public class PathTest {
         assertEquals(1, averageSpeedDetails.get(1).getFirst());
         assertEquals(2, averageSpeedDetails.get(2).getFirst());
         assertEquals(3, averageSpeedDetails.get(3).getFirst());
-        assertEquals(4, averageSpeedDetails.get(3).getLast());
-    }*/
+        assertEquals(4, averageSpeedDetails.get(3).getLast());*/
+    }
 
     @Test
     public void testCalcAverageSpeedDetailsWithShortDistances_issue1848() {
@@ -346,7 +348,8 @@ public class PathTest {
 
         List<PathDetail> streetNameDetails = details.get(STREET_NAME);
         assertEquals(1, details.size());
-
+        /*mise en commentaire pour valider la degration de mutation testing
+        
         assertEquals(4, streetNameDetails.size());
         assertEquals("1-2", streetNameDetails.get(0).getValue());
         assertEquals("2-3", streetNameDetails.get(1).getValue());
@@ -357,7 +360,7 @@ public class PathTest {
         assertEquals(1, streetNameDetails.get(1).getFirst());
         assertEquals(2, streetNameDetails.get(2).getFirst());
         assertEquals(3, streetNameDetails.get(3).getFirst());
-        assertEquals(4, streetNameDetails.get(3).getLast());
+        assertEquals(4, streetNameDetails.get(3).getLast());*/
     }
 
     @Test
