@@ -279,7 +279,7 @@ class HeadingRoutingTest {
             assertArrayEquals(expectedNodes, calcNodes(graph, response.getAll().get(0)), "angle: " + angle);
         }
     }
-    /* 
+
     @Test
     public void testHeadingWithSnapFilter2() {
         BooleanEncodedValue accessEnc = VehicleAccess.create("car");
@@ -318,7 +318,7 @@ class HeadingRoutingTest {
         assertFalse(response.hasErrors());
         assertArrayEquals(new int[]{8, 3, 2}, calcNodes(graph, response.getAll().get(0)));
     }
-   
+
     @Test
     public void headingTest6() {
         // Test if snaps at tower nodes are ignored
@@ -347,7 +347,7 @@ class HeadingRoutingTest {
         GHResponse response = router.route(req);
         assertFalse(response.hasErrors());
         assertArrayEquals(new int[]{0, 1, 2, 3, 4}, calcNodes(graph, response.getAll().get(0)));
-    }*/
+    }
 
     private Router createRouter(BaseGraph graph, EncodingManager encodingManager) {
         LocationIndexTree locationIndex = new LocationIndexTree(graph, new RAMDirectory());
