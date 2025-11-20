@@ -70,8 +70,9 @@ public class PathTest {
         BaseGraph g = new BaseGraph.Builder(carManager).create();
         Path p = new Path(g);
         assertFalse(p.isFound());
-        assertEquals(0, p.getDistance(), 1e-7);
-        assertEquals(0, p.calcNodes().size());
+        //afin de valider la mutation
+        //assertEquals(0, p.getDistance(), 1e-7);
+        //assertEquals(0, p.calcNodes().size());
     }
 
     @Test
@@ -96,17 +97,16 @@ public class PathTest {
         InstructionList instr = InstructionsFromEdges.calcInstructions(path, path.graph, weighting, carManager, tr);
         Instruction tmp = instr.get(0);
 
-        /*mise en commentaire pour valider la degration de mutation testing
-        assertEquals(3000.0, tmp.getDistance(), 0.0);
-        assertEquals(140000L, tmp.getTime());
+        //assertEquals(3000.0, tmp.getDistance(), 0.0);
+       // assertEquals(140000L, tmp.getTime());
         assertEquals("continue", tmp.getTurnDescription(tr));
-        assertEquals(6, tmp.getLength());
+        //assertEquals(6, tmp.getLength());
 
         tmp = instr.get(1);
-        assertEquals(0.0, tmp.getDistance(), 0.0);
-        assertEquals(0L, tmp.getTime());
+        //assertEquals(0.0, tmp.getDistance(), 0.0);
+        //assertEquals(0L, tmp.getTime());
         assertEquals("arrive at destination", tmp.getTurnDescription(tr));
-        assertEquals(0, tmp.getLength());*/
+        //assertEquals(0, tmp.getLength());
 
         int acc = 0;
         for (Instruction instruction : instr) {
@@ -216,9 +216,9 @@ public class PathTest {
         assertEquals(Instruction.FINISH, il.get(4).getSign());
     }
 
-    /** mise en commentaire pour validation de mutation testing
+    /**
      * Test roundabout instructions for different profiles
-    
+     */
     @Test
     void testCalcInstructionsRoundabout() {
         calcInstructionsRoundabout(mixedCarSpeedEnc);
@@ -491,7 +491,7 @@ public class PathTest {
         intersectionMap.put("bearings", List.of(90, 270));
 
         assertEquals(intersectionMap, intersectionDetails.get(1).getValue());
-    } */
+    }
 
     /**
      * case with one edge being not an exit
