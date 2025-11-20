@@ -95,6 +95,8 @@ public class PathTest {
         assertPList(Helper.createPointList(0, 0.1, 8, 1, 9, 1, 1, 0.1, 10, 1, 11, 1, 2, 0.1), path.calcPoints());
         InstructionList instr = InstructionsFromEdges.calcInstructions(path, path.graph, weighting, carManager, tr);
         Instruction tmp = instr.get(0);
+
+        /*mise en commentaire pour valider la degration de mutation testing
         assertEquals(3000.0, tmp.getDistance(), 0.0);
         assertEquals(140000L, tmp.getTime());
         assertEquals("continue", tmp.getTurnDescription(tr));
@@ -104,7 +106,7 @@ public class PathTest {
         assertEquals(0.0, tmp.getDistance(), 0.0);
         assertEquals(0L, tmp.getTime());
         assertEquals("arrive at destination", tmp.getTurnDescription(tr));
-        assertEquals(0, tmp.getLength());
+        assertEquals(0, tmp.getLength());*/
 
         int acc = 0;
         for (Instruction instruction : instr) {
@@ -490,6 +492,7 @@ public class PathTest {
 
     /**
      * case with one edge being not an exit
+     */
     @Test
     public void testCalcInstructionsRoundabout2() {
         roundaboutGraph.inverse3to6();
@@ -508,7 +511,7 @@ public class PathTest {
         RoundaboutInstruction instr = (RoundaboutInstruction) wayList.get(1);
         assertEquals(delta, instr.getTurnAngle(), 0.01);
         roundaboutGraph.inverse3to6();
-    }*/
+    }
 
     @Test
     public void testCalcInstructionsRoundaboutIssue353() {
