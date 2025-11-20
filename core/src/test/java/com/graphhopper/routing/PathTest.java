@@ -168,7 +168,7 @@ public class PathTest {
         }
         assertEquals(path.calcPoints().size() - 1, acc);
     }
-    /* mise en commentaire de quelques tests
+    
     @Test
     public void testFindInstruction() {
         BaseGraph g = new BaseGraph.Builder(carManager).create();
@@ -349,7 +349,7 @@ public class PathTest {
         List<PathDetail> streetNameDetails = details.get(STREET_NAME);
         assertEquals(1, details.size());
         /*mise en commentaire pour valider la degration de mutation testing
-        
+
         assertEquals(4, streetNameDetails.size());
         assertEquals("1-2", streetNameDetails.get(0).getValue());
         assertEquals("2-3", streetNameDetails.get(1).getValue());
