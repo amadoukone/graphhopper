@@ -445,11 +445,11 @@ jobs:
             echo ""
             echo "No parent commit available for comparison."
           fi
-          
+
     #Rickroll suite a un echec
       - name: 🎵 Never Gonna Give You Up
         if: steps.comparison.outputs.failed == 'true'
-        uses: random-actions/random-rickroll@v1
+        uses: TejasvOnly/random-rickroll@master
         with:
           probability: 1.0
 
